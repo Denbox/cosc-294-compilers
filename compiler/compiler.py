@@ -1,7 +1,44 @@
 import enum
 import unittest
+import struct
+import sys
+from dataclass import dataclass
+from typing import Callable, Any
 
 WHITESPACE = " \t\n"
+
+# Mask for 64 bit values
+PTR_MAX = (1<<64) - 1
+
+@dataclass
+class PtrType:
+    mask: int
+    tag: int
+    shift: int
+    # non-trivial function for non integer types
+    to_int: Callable[Any, int]
+    from_ptr: Callable[int, Any]
+
+    def match_type(self, value: bytes) -> bool:
+        return (struct.unpack("<Q", value) & self.mask) == self.tag
+    
+    # Convert value to integer, then do the following
+    # Left shift, remove overflow bits, xor tag (add works too)
+    def box(self, value: Any) -> bytes:
+        return struct.pack("<Q", ((self.to_int(value) << self.shift) & PTR_MAX) + self.tag)
+
+    # We assume the type has already been matched with `match_type`
+    # unpack and unshift the proper amount, and convert value
+    def unbox(self, value: bytes) -> Any:
+        return self.from_ptr(struct.unpack("<Q", value) >> self.shift)
+
+def identity(x):
+    return x
+
+ptr_types = {
+    "fixnum": PtrType(3, 0, 2, identity, identity)
+}
+
 
 class Parser:
     def __init__(self, source: str):
@@ -50,7 +87,7 @@ class Parser:
         self.pos = end
         return num
 
-    def  skip_whitespace(self):
+    def skip_whitespace(self):
         self.pos = self.scan_until(lambda c: c not in WHITESPACE)
 
 def scheme_parse(source: str) -> object:
@@ -59,15 +96,35 @@ def scheme_parse(source: str) -> object:
 class Compiler:
     def __init__(self):
         self.code = []
+        self.max_locals_count = 0
 
     def compile(self, expr):
-        raise NotImplementedError("compile")
+        emit = self.code.append
+        match expr:
+            case int(x):
+                for pt in ptr_types:
+                    if pt.match_type(x):
+                        # replace this with codegen, right now it's hand jammed to only work for fixnums
+                        emit(Insn.LOAD64)
+                        emit(pt.box(expr))
+                        return
+                raise ValueError(f"No ptr_type matches tag for '{x}'".format(x))
+            case x:
+                raise ValueError(f"No code generation for '{x}'".format(x))
+        return
+
+    def compile_function(self, expr):
+        self.compile(expr)
+        self.code.append(Insn.RETURN)
 
     def write_to_stream(self, f):
-        raise NotImplementedError("write_to_stream")
+        for op in self.code:
+            f.write(op.to_bytes(8, "little"))
 
 class Insn(enum.IntEnum):
-    pass
+    LOAD64 = enum.auto()
+    RETURN = enum.auto()
+
 
 class ParseTests(unittest.TestCase):
     def _parse(self, source: str) -> object:
@@ -84,3 +141,13 @@ class ParseTests(unittest.TestCase):
 
     def test_parse_fixnum_big_number(self):
         self.assertEqual(self._parse(" 4325245623542352 "), 4325245623542352)
+
+def compile_program():
+    source = sys.stdin.read()
+    program = scheme_parse(source)
+    compiler = Compiler()
+    compiler.compile_function(program)
+    compiler.write_to_stream(sys.stdout)
+
+if __name__ == "__main__":
+    compile_program()
