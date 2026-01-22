@@ -2,7 +2,7 @@ import enum
 import unittest
 import struct
 import sys
-from dataclass import dataclass
+from dataclasses import dataclass
 from typing import Callable, Any
 
 WHITESPACE = " \t\n"
