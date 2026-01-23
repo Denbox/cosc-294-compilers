@@ -5,6 +5,20 @@ import sys
 from dataclasses import dataclass
 from typing import Callable, Any
 
+# TODO: Support scheme parentheses in parser
+# TODO: Add parser tests
+# TODO: Write DFS traversal for parser
+# TODO: Add DFS tests
+# TODO: Add box and unbox tests for all other types
+# TODO: Add codegen
+# TODO: Add codegen tests
+# TODO: Write interpreter
+# TODO: Add interpreter tests
+# TODO: Add unary functiosn
+# TODO: Add unary function tests
+# TODO: Add binary operators
+# TODO: Add binary operator tests
+
 WHITESPACE = " \t\n"
 
 # Mask for 64 bit values
@@ -30,13 +44,16 @@ class PtrType:
     # We assume the type has already been matched with `match_type`
     # unpack and unshift the proper amount, and convert value
     def unbox(self, value: bytes) -> Any:
-        return self.from_ptr(struct.unpack("<Q", value) >> self.shift)
+        return self.from_ptr(struct.unpack("<Q", value)[0] >> self.shift)
 
 def identity(x):
     return x
 
 ptr_types = {
-    "fixnum": PtrType(3, 0, 2, identity, identity)
+    "fixnum":     PtrType(2, 0b00000011, 2, identity, identity),
+    "bool":       PtrType(7, 0b00011111, 7, identity, identity),
+    "char":       PtrType(8, 0b00001111, 8, identity, identity),
+    "empty_list": PtrType(8, 0b00101111, 8, identity, identity),
 }
 
 
@@ -45,7 +62,45 @@ class Parser:
         self.source = source
         self.pos = 0
         self.length = len(source)
+        self.tokens = []
+        self.depth = 0
 
+    # Each execution of the lex_one function increments self.pos by at least 1 and emits at most 1 token
+    # Running lex_one iteratively will terminate - either lexing the input or yielding an error
+    def lex_one(self) -> object:
+        match self.peek():
+            case ' ' | '\t' | '\n':
+                self.pos += 1
+                return
+            case '(':
+                self.pos += 1
+                return '['
+            case ')':
+                self.pos += 1
+                return ']'
+            case c if c.isdigit():
+                end = self.scan_until(lambda c: not c.isdigit())
+                fixnum = int(self.source[self.pos:end], 10)
+                self.pos = end
+                return fixnum
+            case c if c.isalpha():
+                end = self.scan_until(lambda c: not c.isalpha())
+                string = self.source[self.pos:end]
+                self.pos = end
+                return string
+            case '':
+                raise EOFError(f"Unexpected end of input.\nCurrent tokenization: {self.tokens}\nSource: {self.source}\nCurrent position: {self.pos}")
+            case x:
+                raise ValueError(f"Cannot lex '{x}'.\nCurrent tokenization: {self.tokens}\nSource: {self.source}\nCurrent position: {self.pos}")
+
+    def lex(self) -> object:
+        while self.pos < self.length:
+            token = self.lex_one()
+            if token is not None:
+                self.tokens.append(token)
+        return self.tokens
+        
+    
     def parse(self) -> object:
         self.skip_whitespace()
         match self.peek():
@@ -53,6 +108,10 @@ class Parser:
                 raise EOFError("Unexpected end of input")
             case c if c.isdigit():
                 return self.parse_number()
+            case '(':
+                raise NotImplementedError()
+            case ')':
+                raise NotImplementedError()
             case c:
                 raise NotImplementedError(f"It's not a number silly it's a '{c}'")
         raise NotImplementedError("parse")
@@ -79,14 +138,6 @@ class Parser:
         # If we have reached this point, we have reached end of file or cond
         return tmp_pos
     
-    def parse_number(self):
-        # No error handling because the parser starts on a digit to call this method
-        # and scan_until ensures the range is only digits
-        end = self.scan_until(lambda c: not c.isdigit())
-        num = int(self.source[self.pos:end], 10)
-        self.pos = end
-        return num
-
     def skip_whitespace(self):
         self.pos = self.scan_until(lambda c: c not in WHITESPACE)
 
@@ -125,22 +176,76 @@ class Insn(enum.IntEnum):
     LOAD64 = enum.auto()
     RETURN = enum.auto()
 
+class TokenizationTests(unittest.TestCase):
+    def _lex_one(self, source: str) -> object:
+        return Parser(source).lex_one()
+    
+    def _lex(self, source: str) -> object:
+        return Parser(source).lex()
 
-class ParseTests(unittest.TestCase):
-    def _parse(self, source: str) -> object:
-        return Parser(source).parse()
+    def test_lex_num(self):
+        self.assertEqual(self._lex_one("43"), 43)
 
-    def test_parse_fixnum(self):
-        self.assertEqual(self._parse("42"), 42)
+    def test_lex_one_tab(self):
+        self.assertEqual(self._lex_one("\t"), None)
 
-    def test_parse_fixnum_with_whitespace(self):
-        self.assertEqual(self._parse("     43"), 43)
+    def test_lex_one_space(self):
+        self.assertEqual(self._lex_one(" "), None)
+        
+    def test_lex_one_str(self):
+        self.assertEqual(self._lex_one("asdf"), "asdf")
 
-    def test_parse_fixnum_with_newline_whitespace(self):
-        self.assertEqual(self._parse("\n\n5"), 5)
+    def test_lex_fixnum(self):
+        self.assertEqual(self._lex("42"), [42])
 
-    def test_parse_fixnum_big_number(self):
-        self.assertEqual(self._parse(" 4325245623542352 "), 4325245623542352)
+    def test_lex_fixnum_with_whitespace(self):
+        self.assertEqual(self._lex("     43"), [43])
+
+    def test_lex_fixnum_with_newline_whitespace(self):
+        self.assertEqual(self._lex("\n\n5"), [5])
+
+    def test_lex_fixnum_big_number(self):
+        self.assertEqual(self._lex(" 4325245623542352 "), [4325245623542352])
+
+    def test_lex_multiple_fixnums(self):
+        self.assertEqual(self._lex("5 6 7 7\n\t\t 7 "), [5, 6, 7, 7, 7])
+
+    def test_lex_parens(self):
+        self.assertEqual(self._lex("()"), ["[", "]"])
+
+    def test_lex_open_paren(self):
+        self.assertEqual(self._lex("("), ["["])
+
+    def test_fixnums_in_parens(self):
+        self.assertEqual(self._lex("(5(69) 23 5)"), ["[", 5, "[", 69, "]", 23, 5, "]"])
+
+    def test_lex_combo_num_str(self):
+        self.assertEqual(self._lex("asdf5678a1b2c3"), ["asdf", 5678, "a", 1, "b", 2, "c", 3])
+
+# class ParseTests(unittest.TestCase):
+#     def _lex(self, source: str) -> object:
+#         return Parser(source).lex()
+
+#     def test_lex_fixnum(self):
+#         self.assertEqual(self._parse("42"), 42)
+
+#     def test_lex_fixnum_with_whitespace(self):
+#         self.assertEqual(self._parse("     43"), 43)
+
+#     def test_lex_fixnum_with_newline_whitespace(self):
+#         self.assertEqual(self._parse("\n\n5"), 5)
+#     def test_lex_fixnum_big_number(self):
+#         self.assertEqual(self._parse(" 4325245623542352 "), 4325245623542352)
+
+class BoxTests(unittest.TestCase):
+    def test_box_fixnum(self):
+        self.assertEqual(ptr_types["fixnum"].box(5), struct.pack("<Q", 0b10111))
+
+    def test_unbox_fixnum(self):
+        self.assertEqual(ptr_types["fixnum"].unbox(struct.pack("<Q", 0b10111)), 5)
+
+    def test_box_fixnum_roundtrip(self):
+        self.assertEqual(ptr_types["fixnum"].unbox(ptr_types["fixnum"].box(29)), 29)
 
 def compile_program():
     source = sys.stdin.read()
