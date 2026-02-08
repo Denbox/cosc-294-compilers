@@ -3,9 +3,8 @@ import unittest
 import struct
 import sys
 from dataclasses import dataclass
-from typing import Callable, Any
+from typing import Callable, Any, Tuple
 
-# TODO: Support scheme parentheses in parser
 # TODO: Add parser tests
 # TODO: Write DFS traversal for parser
 # TODO: Add DFS tests
@@ -56,7 +55,17 @@ ptr_types = {
     "empty_list": PtrType(8, 0b00101111, 8, identity, identity),
 }
 
+class Token(enum.IntEnum):
+    NONE      = enum.auto()
+    OPERATION = enum.auto()
+    INTEGER   = enum.auto()
+    KEYWORD   = enum.auto()
+    STRING    = enum.auto()
+    PAREN     = enum.auto()
 
+
+# NOTE: Scheme allows for all sorts of weird variable names. We require that they start with alphanumeric
+# This is a deviation from expected behavior.
 class Parser:
     def __init__(self, source: str):
         self.source = source
@@ -67,27 +76,33 @@ class Parser:
 
     # Each execution of the lex_one function increments self.pos by at least 1 and emits at most 1 token
     # Running lex_one iteratively will terminate - either lexing the input or yielding an error
-    def lex_one(self) -> object:
+    def lex_one(self) -> Tuple[Token, object]:
         match self.peek():
-            case ' ' | '\t' | '\n':
+            case ' ' | '\t' | '\n' as c:
                 self.pos += 1
-                return
+                return (Token.NONE, c)
             case '(':
                 self.pos += 1
-                return '['
+                return (Token.PAREN, '(')
             case ')':
                 self.pos += 1
-                return ']'
+                return (Token.PAREN, ')')
+            case '+' | '-' | '*' | '<' | '=' as c:
+                self.pos += 1
+                return (Token.OPERATION, c)
             case c if c.isdigit():
                 end = self.scan_until(lambda c: not c.isdigit())
-                fixnum = int(self.source[self.pos:end], 10)
+                integer = int(self.source[self.pos:end], 10)
                 self.pos = end
-                return fixnum
+                return (Token.INTEGER, integer)
             case c if c.isalpha():
-                end = self.scan_until(lambda c: not c.isalpha())
+                # TODO: Add keyword support here
+                # We denote string ends as write space barriers or going in and out of nesting
+                # Everything else is fair game
+                end = self.scan_until(lambda c: c in " \t\n()[]")
                 string = self.source[self.pos:end]
                 self.pos = end
-                return string
+                return (Token.STRING, string)
             case '':
                 raise EOFError(f"Unexpected end of input.\nCurrent tokenization: {self.tokens}\nSource: {self.source}\nCurrent position: {self.pos}")
             case x:
@@ -95,9 +110,9 @@ class Parser:
 
     def lex(self) -> object:
         while self.pos < self.length:
-            token = self.lex_one()
-            if token is not None:
-                self.tokens.append(token)
+            token_tuple = self.lex_one()
+            if token_tuple[0] != Token.NONE:
+                self.tokens.append(token_tuple)
         return self.tokens
         
     
@@ -108,6 +123,8 @@ class Parser:
                 raise EOFError("Unexpected end of input")
             case c if c.isdigit():
                 return self.parse_number()
+            case c if c.isalpha():
+                return self.parse_string()
             case '(':
                 raise NotImplementedError()
             case ')':
@@ -184,43 +201,40 @@ class TokenizationTests(unittest.TestCase):
         return Parser(source).lex()
 
     def test_lex_num(self):
-        self.assertEqual(self._lex_one("43"), 43)
+        self.assertEqual(self._lex_one("43"), (Token.INTEGER, 43))
 
     def test_lex_one_tab(self):
-        self.assertEqual(self._lex_one("\t"), None)
+        self.assertEqual(self._lex_one("\t"), (Token.NONE, "\t"))
 
     def test_lex_one_space(self):
-        self.assertEqual(self._lex_one(" "), None)
+        self.assertEqual(self._lex_one(" "), (Token.NONE, " "))
         
     def test_lex_one_str(self):
-        self.assertEqual(self._lex_one("asdf"), "asdf")
+        self.assertEqual(self._lex_one("asdf"), (Token.STRING, "asdf"))
 
     def test_lex_fixnum(self):
-        self.assertEqual(self._lex("42"), [42])
+        self.assertEqual(self._lex("42"), [(Token.INTEGER, 42)])
 
     def test_lex_fixnum_with_whitespace(self):
-        self.assertEqual(self._lex("     43"), [43])
+        self.assertEqual(self._lex("     43"), [(Token.INTEGER, 43)])
 
     def test_lex_fixnum_with_newline_whitespace(self):
-        self.assertEqual(self._lex("\n\n5"), [5])
+        self.assertEqual(self._lex("\n\n5"), [(Token.INTEGER, 5)])
 
     def test_lex_fixnum_big_number(self):
-        self.assertEqual(self._lex(" 4325245623542352 "), [4325245623542352])
+        self.assertEqual(self._lex(" 4325245623542352 "), [(Token.INTEGER, 4325245623542352)])
 
     def test_lex_multiple_fixnums(self):
-        self.assertEqual(self._lex("5 6 7 7\n\t\t 7 "), [5, 6, 7, 7, 7])
+        self.assertEqual(self._lex("5 6 7 7\n\t\t 7 "), [(Token.INTEGER, 5), (Token.INTEGER, 6), (Token.INTEGER, 7), (Token.INTEGER, 7), (Token.INTEGER, 7)])
 
     def test_lex_parens(self):
-        self.assertEqual(self._lex("()"), ["[", "]"])
+        self.assertEqual(self._lex("()"), [(Token.PAREN, "("), (Token.PAREN, ")")])
 
     def test_lex_open_paren(self):
-        self.assertEqual(self._lex("("), ["["])
+        self.assertEqual(self._lex("("), [(Token.PAREN, "(")])
 
     def test_fixnums_in_parens(self):
-        self.assertEqual(self._lex("(5(69) 23 5)"), ["[", 5, "[", 69, "]", 23, 5, "]"])
-
-    def test_lex_combo_num_str(self):
-        self.assertEqual(self._lex("asdf5678a1b2c3"), ["asdf", 5678, "a", 1, "b", 2, "c", 3])
+        self.assertEqual(self._lex("(5(69) 23 5)"), [(Token.PAREN, "("), (Token.INTEGER, 5), (Token.PAREN, "("), (Token.INTEGER, 69), (Token.PAREN, ")"), (Token.INTEGER, 23), (Token.INTEGER, 5), (Token.PAREN, ")")])
 
 # class ParseTests(unittest.TestCase):
 #     def _lex(self, source: str) -> object:
