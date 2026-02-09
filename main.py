@@ -15,8 +15,6 @@ from typing import Callable, Any, Tuple, List
 # TODO: Add interpreter tests
 # TODO: Add unary functiosn
 # TODO: Add unary function tests
-# TODO: Add binary operators
-# TODO: Add binary operator tests
 
 WHITESPACE = " \t\n"
 
@@ -153,7 +151,7 @@ class Parser:
             # handle paren cases later
             case tok:
                 raise ValueError(f"Unexpected token: '{tok}'")
-                                   
+
     # TODO: Make the type of opcodes more specific  than object
     def parse(self) -> List[object]:
         tokens = self.tokens[:]
