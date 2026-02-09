@@ -120,85 +120,47 @@ class Parser:
                 self.tokens.append(token_tuple)
         return self.tokens
 
-    # Opcodes are ordered in reverse polish notation. This is because, when they are pushed to the stack, operations will be on top.
-    def parse_expr(self, expr: List[Tuple(Token, object)]) -> [object]:
-        output = []
-        if expr == []:
-            raise ValueError("Expected an expression.")
-        tok = expr.pop(0)
-        match tok:
-            case (Token.PAREN, "("):
-                self.depth += 1
-                output.append(self.parse_expr(expr))
-            case (Token.PAREN, ")"):
-                self.depth -= 1
-                if self.depth < 0:
-                    raise ValueError("Unexpected closing parenthesis.")
-                else:
-                    # TODO: Update this
-                    raise ValueError("Jacob is confused, what should happen here??")
-            case (Token.UNOP, obj):
-                output.append((Token.UNOP, obj))
-                output.append(self.parse_expr(expr))
-            case (Token.BINOP, obj):
-                output.extend([(Token.BINOP, obj)])
-                output.extend(self.parse_expr(expr))
-                output.extend(self.parse_expr(expr))
-            case (Token.INTEGER, x):
-                output.extend([(Token.INTEGER, x)])
-            case (Token.STRING, x):
-                output.extend([(Token.STRING, x)])
-            case x:
-                raise ValueError(f"Unexpected token '{x}'.")
-        return output
 
-        # match expr:
-        #     case []:
-        #         yield
-        #     case [(Token.UNOP, obj)]:
-        #         yield (Token.UNOP, obj)
-        #     case [(Token.INTEGER, obj)]:
-        #         yield (Token.INTEGER, obj)
-        #     case [(Token.STRING, obj)]:
-        #         yield (Token.STRING, obj)
-        #     case [(Token.BINOP, obj), x, y]:
-        #         yield from self.parse_expr(x)
-        #         yield from self.parse_expr(y)
-        #         yield (Token.BINOP, obj)
-        #     case [(Token.PAREN, '('), *middle, (Token.PAREN, ")")]:
-        #         yield from self.parse_expr(middle)
-        #     case [(Token.NOP, obj), *rest]:
-        #         raise ValueError(f"We should never have a NOP in our expression parser. Token: {str(Token.NOP), obj}.")
-        #     case [(Token.UNOP, obj), x, y, *rest]:
-        #         raise ValueError(f"A unary operation should never have more than one argument, but token '{str(Token.UNOP), obj}' has '{x}' and '{y}' at least.")
-        #     case [(Token.UNOP, obj)]:
-        #         raise ValueError(f"A unary operation needs to have one argument, but token '{str(Token.UNOP), obj}' has none.")
-        #     case [(Token.BINOP, obj), x, y, z, *rest]:
-        #         raise ValueError(f"A binary operation should never have more than two arguments, but token '{str(Token.BINOP), obj}' has '{x}', '{y}', and {z} at least.")
-        #     case [(Token.BINOP, obj)]:
-        #         raise ValueError(f"A binary operation needs to have two arguments, but token '{str(Token.BINOP), obj}' has none.")
-        #     case [(Token.BINOP, obj), x]:
-        #         raise ValueError(f"A binary operation needs to have two arguments, but token '{str(Token.BINOP), obj}' has only '{x}'.")
-        #     case [(Token.INTEGER, obj), x, *rest]:
-        #         raise ValueError(f"An integer should never have arguments, but token '{str(Token.INTEGER), obj}' has at least '{x}'.")
-        #     case [(Token.STRING, obj), x, *rest]:
-        #         raise ValueError(f"A string should never have arguments, but token '{str(Token.STRING), obj}' has at least '{x}'.")
-        #     case [(Token.PAREN, "("), *middle, x]:
-        #         raise ValueError("Opening parenthesis must be matched by a closing parenthesis as the final term. Got '{x}' instead.")
-        #     case [(Token.PAREN, "(")]:
-        #         raise ValueError("Opening parenthesis cannot be the final token. It must be matched by a closing parenthesis.")
-        #     case [(label, obj), *rest]:
-        #         if not isinstance(label, Token):
-        #             raise ValueError(f"Cannot parse non-token {label} with value {obj}. Remaining expression data: {rest}.")
-        #         raise ValueError(f"Parsing is not supported for token: {label} with data {obj}")
-        #     case [x, *rest]:
-        #         raise ValueError(f"Parsing is not supported for non-token value: {x}. Remaining data: {rest}.")
-                                    
+    def parse_expr(self, expr: List[Tuple(Token, object)]) -> object:
+        if expr == []:
+            return ''
+        match expr.pop(0):
+            case (Token.INTEGER, _) as i:
+                yield i
+            case (Token.STRING, _) as s:
+                yield s
+            case (Token.UNOP, _) as u:
+                yield u
+                yield from self.parse_expr(expr)
+            case (Token.PAREN, "("):
+                closing = (Token.PAREN, ")")
+                if len(expr) == 0:
+                    raise ValueError("Closing parenthesis expected.")
+                if expr[0] == closing:
+                    expr.pop(0)
+                else:
+                    result = [*self.parse_expr(expr)]
+                    if len(expr) == 0:
+                        raise ValueError("Unexpected end of input. Closing parenthesis needed.")
+                    elif expr[0] != closing:
+                        raise ValueError("Closing parenthesis expected.")
+                    expr.pop(0) # We need to remove the closing parenthesis
+                    yield result
+            case (Token.BINOP, _) as b:
+                yield b
+                yield from self.parse_expr(expr)
+                yield from self.parse_expr(expr)
+            # handle paren cases later
+            case tok:
+                raise ValueError(f"Unexpected token: '{tok}'")
+                                   
     # TODO: Make the type of opcodes more specific  than object
     def parse(self) -> List[object]:
-        # Add surrounding parentheses to get us into an expression for sure
-        # Then we can always lop off this extra piece. This is super ugly and there should be something better to do
-        self.ast = self.parse_expr([(Token.PAREN, "(")] + self.tokens + [(Token.PAREN, ")")])[0]
+        tokens = self.tokens[:]
+        # Use the default value of "" in case there are no tokens
+        self.ast = next(self.parse_expr(tokens), "")
+        if len(tokens) != 0:
+            raise ValueError(f"Failed to parse all tokens.\nCurrent parse: {self.ast}\nRemaining Tokens: {tokens}")
         return self.ast
 
     def peek(self, pos=None) -> chr:
@@ -320,6 +282,9 @@ class ParseTests(unittest.TestCase):
         p.parse()
         return p.ast
 
+    def test_parse_nothing(self):
+        self.assertEqual(self._parse(""), "")
+    
     def test_parse_fixnum(self):
         self.assertEqual(self._parse("42"), (Token.INTEGER, 42))
 
@@ -331,6 +296,16 @@ class ParseTests(unittest.TestCase):
 
     def test_parse_fixnum_big_number(self):
         self.assertEqual(self._parse(" 4325245623542352 "), (Token.INTEGER, 4325245623542352))
+
+    def test_parse_binop(self):
+        self.assertEqual(self._parse("(* 5 6)"), [(Token.BINOP, '*'), (Token.INTEGER, 5), (Token.INTEGER, 6)])
+        
+    def test_parse_binop_too_many_args(self):
+        with self.assertRaises(ValueError):
+            self._parse("(* 5 6 7)")
+
+    def test_parse_layered_binops_and_parens(self):
+        self.assertEqual(self._parse("(+ 1 (* ((2)) 3))"), [(Token.BINOP, "+"), (Token.INTEGER, 1), [(Token.BINOP, "*"), [[(Token.INTEGER, 2)]], (Token.INTEGER, 3)]])
     
     def test_parse_balanced_parens_simple(self):
         self.assertEqual(self._parse("( 5 )"), [(Token.INTEGER, 5)])
@@ -346,9 +321,6 @@ class ParseTests(unittest.TestCase):
     # TODO: Add and test unary operators
     # def test_parse_unary_op(self):
     #     self.assertEqual(self._parse(""))
-
-    def test_parse_binary_op(self):
-        self.assertEqual(self._parse("* 5 6"),[(Token.BINOP, '*'), (Token.INTEGER, 5), (Token.INTEGER, 6)] )
 
 class BoxTests(unittest.TestCase):
     def test_box_fixnum(self):
