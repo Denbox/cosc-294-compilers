@@ -3,7 +3,7 @@ import unittest
 import struct
 import sys
 from dataclasses import dataclass
-from typing import Callable, Any, Tuple
+from typing import Callable, Any, Tuple, List
 
 # TODO: Add parser tests
 # TODO: Write DFS traversal for parser
@@ -56,13 +56,13 @@ ptr_types = {
 }
 
 class Token(enum.IntEnum):
-    NONE      = enum.auto()
-    OPERATION = enum.auto()
-    INTEGER   = enum.auto()
-    KEYWORD   = enum.auto()
-    STRING    = enum.auto()
-    PAREN     = enum.auto()
-
+    NOP     = enum.auto() # No operation
+    UNOP    = enum.auto() # Unary operation
+    BINOP   = enum.auto() # Binary operation
+    KEYWORD = enum.auto() # Keyword
+    PAREN   = enum.auto() # Paren (opening or closing)
+    INTEGER = enum.auto() # Integer value
+    STRING  = enum.auto() # String value
 
 # NOTE: Scheme allows for all sorts of weird variable names. We require that they start with alphanumeric
 # This is a deviation from expected behavior.
@@ -71,25 +71,30 @@ class Parser:
         self.source = source
         self.pos = 0
         self.length = len(source)
-        self.tokens = []
         self.depth = 0
+        self.tokens = []
+        self.ast = []
 
-    # Each execution of the lex_one function increments self.pos by at least 1 and emits at most 1 token
-    # Running lex_one iteratively will terminate - either lexing the input or yielding an error
-    def lex_one(self) -> Tuple[Token, object]:
+    # Each execution of the tokenize_one function increments self.pos by at least 1 and emits at most 1 token
+    # Running tokenize_one iteratively will terminate - either tokenizing the input or yielding an error
+    # TODO: Add keyword support
+    # TODO: Add parentheses support
+    # TODO: Add unary operator support
+    def tokenize_one(self) -> Tuple[Token, object]:
         match self.peek():
             case ' ' | '\t' | '\n' as c:
                 self.pos += 1
-                return (Token.NONE, c)
+                return (Token.NOP, c)
             case '(':
                 self.pos += 1
                 return (Token.PAREN, '(')
             case ')':
                 self.pos += 1
                 return (Token.PAREN, ')')
+            # TODO: Fix some of these unaries
             case '+' | '-' | '*' | '<' | '=' as c:
                 self.pos += 1
-                return (Token.OPERATION, c)
+                return (Token.BINOP, c)
             case c if c.isdigit():
                 end = self.scan_until(lambda c: not c.isdigit())
                 integer = int(self.source[self.pos:end], 10)
@@ -106,32 +111,95 @@ class Parser:
             case '':
                 raise EOFError(f"Unexpected end of input.\nCurrent tokenization: {self.tokens}\nSource: {self.source}\nCurrent position: {self.pos}")
             case x:
-                raise ValueError(f"Cannot lex '{x}'.\nCurrent tokenization: {self.tokens}\nSource: {self.source}\nCurrent position: {self.pos}")
+                raise ValueError(f"Cannot tokenize '{x}'.\nCurrent tokenization: {self.tokens}\nSource: {self.source}\nCurrent position: {self.pos}")
 
-    def lex(self) -> object:
+    def tokenize(self) -> List[object]:
         while self.pos < self.length:
-            token_tuple = self.lex_one()
-            if token_tuple[0] != Token.NONE:
+            token_tuple = self.tokenize_one()
+            if token_tuple[0] != Token.NOP:
                 self.tokens.append(token_tuple)
         return self.tokens
-        
-    
-    def parse(self) -> object:
-        self.skip_whitespace()
-        match self.peek():
-            case '':
-                raise EOFError("Unexpected end of input")
-            case c if c.isdigit():
-                return self.parse_number()
-            case c if c.isalpha():
-                return self.parse_string()
-            case '(':
-                raise NotImplementedError()
-            case ')':
-                raise NotImplementedError()
-            case c:
-                raise NotImplementedError(f"It's not a number silly it's a '{c}'")
-        raise NotImplementedError("parse")
+
+    # Opcodes are ordered in reverse polish notation. This is because, when they are pushed to the stack, operations will be on top.
+    def parse_expr(self, expr: List[Tuple(Token, object)]) -> [object]:
+        output = []
+        if expr == []:
+            raise ValueError("Expected an expression.")
+        tok = expr.pop(0)
+        match tok:
+            case (Token.PAREN, "("):
+                self.depth += 1
+                output.append(self.parse_expr(expr))
+            case (Token.PAREN, ")"):
+                self.depth -= 1
+                if self.depth < 0:
+                    raise ValueError("Unexpected closing parenthesis.")
+                else:
+                    # TODO: Update this
+                    raise ValueError("Jacob is confused, what should happen here??")
+            case (Token.UNOP, obj):
+                output.append((Token.UNOP, obj))
+                output.append(self.parse_expr(expr))
+            case (Token.BINOP, obj):
+                output.extend([(Token.BINOP, obj)])
+                output.extend(self.parse_expr(expr))
+                output.extend(self.parse_expr(expr))
+            case (Token.INTEGER, x):
+                output.extend([(Token.INTEGER, x)])
+            case (Token.STRING, x):
+                output.extend([(Token.STRING, x)])
+            case x:
+                raise ValueError(f"Unexpected token '{x}'.")
+        return output
+
+        # match expr:
+        #     case []:
+        #         yield
+        #     case [(Token.UNOP, obj)]:
+        #         yield (Token.UNOP, obj)
+        #     case [(Token.INTEGER, obj)]:
+        #         yield (Token.INTEGER, obj)
+        #     case [(Token.STRING, obj)]:
+        #         yield (Token.STRING, obj)
+        #     case [(Token.BINOP, obj), x, y]:
+        #         yield from self.parse_expr(x)
+        #         yield from self.parse_expr(y)
+        #         yield (Token.BINOP, obj)
+        #     case [(Token.PAREN, '('), *middle, (Token.PAREN, ")")]:
+        #         yield from self.parse_expr(middle)
+        #     case [(Token.NOP, obj), *rest]:
+        #         raise ValueError(f"We should never have a NOP in our expression parser. Token: {str(Token.NOP), obj}.")
+        #     case [(Token.UNOP, obj), x, y, *rest]:
+        #         raise ValueError(f"A unary operation should never have more than one argument, but token '{str(Token.UNOP), obj}' has '{x}' and '{y}' at least.")
+        #     case [(Token.UNOP, obj)]:
+        #         raise ValueError(f"A unary operation needs to have one argument, but token '{str(Token.UNOP), obj}' has none.")
+        #     case [(Token.BINOP, obj), x, y, z, *rest]:
+        #         raise ValueError(f"A binary operation should never have more than two arguments, but token '{str(Token.BINOP), obj}' has '{x}', '{y}', and {z} at least.")
+        #     case [(Token.BINOP, obj)]:
+        #         raise ValueError(f"A binary operation needs to have two arguments, but token '{str(Token.BINOP), obj}' has none.")
+        #     case [(Token.BINOP, obj), x]:
+        #         raise ValueError(f"A binary operation needs to have two arguments, but token '{str(Token.BINOP), obj}' has only '{x}'.")
+        #     case [(Token.INTEGER, obj), x, *rest]:
+        #         raise ValueError(f"An integer should never have arguments, but token '{str(Token.INTEGER), obj}' has at least '{x}'.")
+        #     case [(Token.STRING, obj), x, *rest]:
+        #         raise ValueError(f"A string should never have arguments, but token '{str(Token.STRING), obj}' has at least '{x}'.")
+        #     case [(Token.PAREN, "("), *middle, x]:
+        #         raise ValueError("Opening parenthesis must be matched by a closing parenthesis as the final term. Got '{x}' instead.")
+        #     case [(Token.PAREN, "(")]:
+        #         raise ValueError("Opening parenthesis cannot be the final token. It must be matched by a closing parenthesis.")
+        #     case [(label, obj), *rest]:
+        #         if not isinstance(label, Token):
+        #             raise ValueError(f"Cannot parse non-token {label} with value {obj}. Remaining expression data: {rest}.")
+        #         raise ValueError(f"Parsing is not supported for token: {label} with data {obj}")
+        #     case [x, *rest]:
+        #         raise ValueError(f"Parsing is not supported for non-token value: {x}. Remaining data: {rest}.")
+                                    
+    # TODO: Make the type of opcodes more specific  than object
+    def parse(self) -> List[object]:
+        # Add surrounding parentheses to get us into an expression for sure
+        # Then we can always lop off this extra piece. This is super ugly and there should be something better to do
+        self.ast = self.parse_expr([(Token.PAREN, "(")] + self.tokens + [(Token.PAREN, ")")])[0]
+        return self.ast
 
     def peek(self, pos=None) -> chr:
         if pos is None:
@@ -157,7 +225,7 @@ class Parser:
     
     def skip_whitespace(self):
         self.pos = self.scan_until(lambda c: c not in WHITESPACE)
-
+        
 def scheme_parse(source: str) -> object:
     return Parser(source).parse()
 
@@ -194,62 +262,93 @@ class Insn(enum.IntEnum):
     RETURN = enum.auto()
 
 class TokenizationTests(unittest.TestCase):
-    def _lex_one(self, source: str) -> object:
-        return Parser(source).lex_one()
+    def _tokenize_one(self, source: str) -> object:
+        return Parser(source).tokenize_one()
     
-    def _lex(self, source: str) -> object:
-        return Parser(source).lex()
+    def _tokenize(self, source: str) -> object:
+        return Parser(source).tokenize()
 
-    def test_lex_num(self):
-        self.assertEqual(self._lex_one("43"), (Token.INTEGER, 43))
+    def test_tokenize_num(self):
+        self.assertEqual(self._tokenize_one("43"), (Token.INTEGER, 43))
 
-    def test_lex_one_tab(self):
-        self.assertEqual(self._lex_one("\t"), (Token.NONE, "\t"))
+    def test_tokenize_one_tab(self):
+        self.assertEqual(self._tokenize_one("\t"), (Token.NOP, "\t"))
 
-    def test_lex_one_space(self):
-        self.assertEqual(self._lex_one(" "), (Token.NONE, " "))
+    def test_tokenize_one_space(self):
+        self.assertEqual(self._tokenize_one(" "), (Token.NOP, " "))
         
-    def test_lex_one_str(self):
-        self.assertEqual(self._lex_one("asdf"), (Token.STRING, "asdf"))
+    def test_tokenize_one_str(self):
+        self.assertEqual(self._tokenize_one("asdf"), (Token.STRING, "asdf"))
 
-    def test_lex_fixnum(self):
-        self.assertEqual(self._lex("42"), [(Token.INTEGER, 42)])
+    # TODO: Add a keyword test for each type of keyword
+    def test_tokenize_one_kw(self):
+        self.assertEqual(True, True)
 
-    def test_lex_fixnum_with_whitespace(self):
-        self.assertEqual(self._lex("     43"), [(Token.INTEGER, 43)])
+    def test_tokenize_fixnum(self):
+        self.assertEqual(self._tokenize("42"), [(Token.INTEGER, 42)])
 
-    def test_lex_fixnum_with_newline_whitespace(self):
-        self.assertEqual(self._lex("\n\n5"), [(Token.INTEGER, 5)])
+    def test_tokenize_fixnum_with_whitespace(self):
+        self.assertEqual(self._tokenize("     43"), [(Token.INTEGER, 43)])
 
-    def test_lex_fixnum_big_number(self):
-        self.assertEqual(self._lex(" 4325245623542352 "), [(Token.INTEGER, 4325245623542352)])
+    def test_tokenize_fixnum_with_newline_whitespace(self):
+        self.assertEqual(self._tokenize("\n\n5"), [(Token.INTEGER, 5)])
 
-    def test_lex_multiple_fixnums(self):
-        self.assertEqual(self._lex("5 6 7 7\n\t\t 7 "), [(Token.INTEGER, 5), (Token.INTEGER, 6), (Token.INTEGER, 7), (Token.INTEGER, 7), (Token.INTEGER, 7)])
+    def test_tokenize_fixnum_big_number(self):
+        self.assertEqual(self._tokenize(" 4325245623542352 "), [(Token.INTEGER, 4325245623542352)])
 
-    def test_lex_parens(self):
-        self.assertEqual(self._lex("()"), [(Token.PAREN, "("), (Token.PAREN, ")")])
+    def test_tokenize_multiple_fixnums(self):
+        self.assertEqual(self._tokenize("5 6 7 7\n\t\t 7 "), [(Token.INTEGER, 5), (Token.INTEGER, 6), (Token.INTEGER, 7), (Token.INTEGER, 7), (Token.INTEGER, 7)])
 
-    def test_lex_open_paren(self):
-        self.assertEqual(self._lex("("), [(Token.PAREN, "(")])
+    def test_tokenize_parens(self):
+        self.assertEqual(self._tokenize("()"), [(Token.PAREN, "("), (Token.PAREN, ")")])
+
+    def test_tokenize_open_paren(self):
+        self.assertEqual(self._tokenize("("), [(Token.PAREN, "(")])
 
     def test_fixnums_in_parens(self):
-        self.assertEqual(self._lex("(5(69) 23 5)"), [(Token.PAREN, "("), (Token.INTEGER, 5), (Token.PAREN, "("), (Token.INTEGER, 69), (Token.PAREN, ")"), (Token.INTEGER, 23), (Token.INTEGER, 5), (Token.PAREN, ")")])
+        self.assertEqual(self._tokenize("(5(69) 23 5)"), [(Token.PAREN, "("), (Token.INTEGER, 5), (Token.PAREN, "("), (Token.INTEGER, 69), (Token.PAREN, ")"), (Token.INTEGER, 23), (Token.INTEGER, 5), (Token.PAREN, ")")])
 
-# class ParseTests(unittest.TestCase):
-#     def _lex(self, source: str) -> object:
-#         return Parser(source).lex()
+    # TODO: Test tokenizeing of unary and binary operations
 
-#     def test_lex_fixnum(self):
-#         self.assertEqual(self._parse("42"), 42)
+# TODO: Add unary operation expression parsing tests. Look for errors with multiple args, and no args. Ensure correct parsing with one arg.
+# TODO: Same with binary operations
+# TODO: Add tests for balanced parentheses
+class ParseTests(unittest.TestCase):
+    def _parse(self, source: str) -> object:
+        p = Parser(source)
+        p.tokenize()
+        p.parse()
+        return p.ast
 
-#     def test_lex_fixnum_with_whitespace(self):
-#         self.assertEqual(self._parse("     43"), 43)
+    def test_parse_fixnum(self):
+        self.assertEqual(self._parse("42"), (Token.INTEGER, 42))
 
-#     def test_lex_fixnum_with_newline_whitespace(self):
-#         self.assertEqual(self._parse("\n\n5"), 5)
-#     def test_lex_fixnum_big_number(self):
-#         self.assertEqual(self._parse(" 4325245623542352 "), 4325245623542352)
+    def test_parse_fixnum_with_whitespace(self):
+        self.assertEqual(self._parse("     43"), (Token.INTEGER, 43))
+
+    def test_parse_fixnum_with_newline_whitespace(self):
+        self.assertEqual(self._parse("\n\n5"), (Token.INTEGER, 5))
+
+    def test_parse_fixnum_big_number(self):
+        self.assertEqual(self._parse(" 4325245623542352 "), (Token.INTEGER, 4325245623542352))
+    
+    def test_parse_balanced_parens_simple(self):
+        self.assertEqual(self._parse("( 5 )"), [(Token.INTEGER, 5)])
+
+    def test_parse_open_parens(self):
+        with self.assertRaises(ValueError):
+            self._parse("(")
+
+    def test_parse_dangling_close_parens(self):
+        with self.assertRaises(ValueError):
+            self._parse(")")
+
+    # TODO: Add and test unary operators
+    # def test_parse_unary_op(self):
+    #     self.assertEqual(self._parse(""))
+
+    def test_parse_binary_op(self):
+        self.assertEqual(self._parse("* 5 6"),[(Token.BINOP, '*'), (Token.INTEGER, 5), (Token.INTEGER, 6)] )
 
 class BoxTests(unittest.TestCase):
     def test_box_fixnum(self):
