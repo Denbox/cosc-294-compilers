@@ -368,7 +368,6 @@ class ParseTests(unittest.TestCase):
         )
 
     def test_nested_unops(self):
-        print(self._parse("(add1 (sub1 (integer->char (char->integer (null? 0)))))"))
         self.assertEqual(
             self._parse("(add1 (sub1 (integer->char (char->integer (null? 0)))))"),
             [
@@ -426,9 +425,7 @@ class BoxTests(unittest.TestCase):
 
 def compile_program():
     source = sys.stdin.read()
-    print("Source:", source)
     program = scheme_parse(source)
-    print("Program:", program)
     compiler = Compiler()
     compiler.compile_function(program)
     compiler.write_to_stream(sys.stdout)
