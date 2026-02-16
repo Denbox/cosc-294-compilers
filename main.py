@@ -19,7 +19,8 @@ from typing import Callable, Any, Tuple, List
 WHITESPACE = " \t\n"
 
 # Mask for 64 bit values
-PTR_MAX = (1<<64) - 1
+PTR_MAX = (1 << 64) - 1
+
 
 @dataclass
 class PtrType:
@@ -32,35 +33,41 @@ class PtrType:
 
     def match_type(self, value: bytes) -> bool:
         return (struct.unpack("<Q", value) & self.mask) == self.tag
-    
+
     # Convert value to integer, then do the following
     # Left shift, remove overflow bits, xor tag (add works too)
     def box(self, value: Any) -> bytes:
-        return struct.pack("<Q", ((self.to_int(value) << self.shift) & PTR_MAX) + self.tag)
+        return struct.pack(
+            "<Q", ((self.to_int(value) << self.shift) & PTR_MAX) + self.tag
+        )
 
     # We assume the type has already been matched with `match_type`
     # unpack and unshift the proper amount, and convert value
     def unbox(self, value: bytes) -> Any:
         return self.from_ptr(struct.unpack("<Q", value)[0] >> self.shift)
 
+
 def identity(x):
     return x
 
+
 ptr_types = {
-    "fixnum":     PtrType(2, 0b00000011, 2, identity, identity),
-    "bool":       PtrType(7, 0b00011111, 7, identity, identity),
-    "char":       PtrType(8, 0b00001111, 8, identity, identity),
+    "fixnum": PtrType(2, 0b00000011, 2, identity, identity),
+    "bool": PtrType(7, 0b00011111, 7, identity, identity),
+    "char": PtrType(8, 0b00001111, 8, identity, identity),
     "empty_list": PtrType(8, 0b00101111, 8, identity, identity),
 }
 
+
 class Token(enum.IntEnum):
-    NOP     = enum.auto() # No operation
-    UNOP    = enum.auto() # Unary operation
-    BINOP   = enum.auto() # Binary operation
-    KEYWORD = enum.auto() # Keyword
-    PAREN   = enum.auto() # Paren (opening or closing)
-    INTEGER = enum.auto() # Integer value
-    STRING  = enum.auto() # String value
+    NOP = enum.auto()  # No operation
+    UNOP = enum.auto()  # Unary operation
+    BINOP = enum.auto()  # Binary operation
+    KEYWORD = enum.auto()  # Keyword
+    PAREN = enum.auto()  # Paren (opening or closing)
+    INTEGER = enum.auto()  # Integer value
+    STRING = enum.auto()  # String value
+
 
 # NOTE: Scheme allows for all sorts of weird variable names. We require that they start with alphanumeric
 # This is a deviation from expected behavior.
@@ -76,26 +83,26 @@ class Parser:
     # Each execution of the tokenize_one function increments self.pos by at least 1 and emits at most 1 token
     # Running tokenize_one iteratively will terminate - either tokenizing the input or yielding an error
     # TODO: Add keyword support
-    # TODO: Add parentheses support
     # TODO: Add unary operator support
     def tokenize_one(self) -> Tuple[Token, object]:
         match self.peek():
-            case ' ' | '\t' | '\n' as c:
+            # TODO: Replace these cases with the WHITESPACE variable
+            case " " | "\t" | "\n" as c:
                 self.pos += 1
                 return (Token.NOP, c)
-            case '(':
+            case "(":
                 self.pos += 1
-                return (Token.PAREN, '(')
-            case ')':
+                return (Token.PAREN, "(")
+            case ")":
                 self.pos += 1
-                return (Token.PAREN, ')')
+                return (Token.PAREN, ")")
             # TODO: Fix some of these unaries
-            case '+' | '-' | '*' | '<' | '=' as c:
+            case "+" | "-" | "*" | "<" | "=" as c:
                 self.pos += 1
                 return (Token.BINOP, c)
             case c if c.isdigit():
                 end = self.scan_until(lambda c: not c.isdigit())
-                integer = int(self.source[self.pos:end], 10)
+                integer = int(self.source[self.pos : end], 10)
                 self.pos = end
                 return (Token.INTEGER, integer)
             case c if c.isalpha():
@@ -103,13 +110,17 @@ class Parser:
                 # We denote string ends as write space barriers or going in and out of nesting
                 # Everything else is fair game
                 end = self.scan_until(lambda c: c in " \t\n()[]")
-                string = self.source[self.pos:end]
+                string = self.source[self.pos : end]
                 self.pos = end
                 return (Token.STRING, string)
-            case '':
-                raise EOFError(f"Unexpected end of input.\nCurrent tokenization: {self.tokens}\nSource: {self.source}\nCurrent position: {self.pos}")
+            case "":
+                raise EOFError(
+                    f"Unexpected end of input.\nCurrent tokenization: {self.tokens}\nSource: {self.source}\nCurrent position: {self.pos}"
+                )
             case x:
-                raise ValueError(f"Cannot tokenize '{x}'.\nCurrent tokenization: {self.tokens}\nSource: {self.source}\nCurrent position: {self.pos}")
+                raise ValueError(
+                    f"Cannot tokenize '{x}'.\nCurrent tokenization: {self.tokens}\nSource: {self.source}\nCurrent position: {self.pos}"
+                )
 
     def tokenize(self) -> List[object]:
         while self.pos < self.length:
@@ -118,10 +129,9 @@ class Parser:
                 self.tokens.append(token_tuple)
         return self.tokens
 
-
     def parse_expr(self, expr: List[Tuple(Token, object)]) -> object:
         if expr == []:
-            return ''
+            return ""
         match expr.pop(0):
             case (Token.INTEGER, _) as i:
                 yield i
@@ -139,33 +149,36 @@ class Parser:
                 else:
                     result = [*self.parse_expr(expr)]
                     if len(expr) == 0:
-                        raise ValueError("Unexpected end of input. Closing parenthesis needed.")
+                        raise ValueError(
+                            "Unexpected end of input. Closing parenthesis needed."
+                        )
                     elif expr[0] != closing:
                         raise ValueError("Closing parenthesis expected.")
-                    expr.pop(0) # We need to remove the closing parenthesis
+                    expr.pop(0)  # We need to remove the closing parenthesis
                     yield result
             case (Token.BINOP, _) as b:
                 yield b
                 yield from self.parse_expr(expr)
                 yield from self.parse_expr(expr)
-            # handle paren cases later
             case tok:
                 raise ValueError(f"Unexpected token: '{tok}'")
 
-    # TODO: Make the type of opcodes more specific  than object
+    # TODO: Make the type of opcodes more specific than object
     def parse(self) -> List[object]:
         tokens = self.tokens[:]
         # Use the default value of "" in case there are no tokens
         self.ast = next(self.parse_expr(tokens), "")
         if len(tokens) != 0:
-            raise ValueError(f"Failed to parse all tokens.\nCurrent parse: {self.ast}\nRemaining Tokens: {tokens}")
+            raise ValueError(
+                f"Failed to parse all tokens.\nCurrent parse: {self.ast}\nRemaining Tokens: {tokens}"
+            )
         return self.ast
 
     def peek(self, pos=None) -> chr:
         if pos is None:
             pos = self.pos
         if pos >= self.length:
-            return ''
+            return ""
         return self.source[pos]
 
     def eof(self, index=None) -> bool:
@@ -182,12 +195,14 @@ class Parser:
             tmp_pos += 1
         # If we have reached this point, we have reached end of file or cond
         return tmp_pos
-    
+
     def skip_whitespace(self):
         self.pos = self.scan_until(lambda c: c not in WHITESPACE)
-        
+
+
 def scheme_parse(source: str) -> object:
     return Parser(source).parse()
+
 
 class Compiler:
     def __init__(self):
@@ -217,14 +232,16 @@ class Compiler:
         for op in self.code:
             f.write(op.to_bytes(8, "little"))
 
+
 class Insn(enum.IntEnum):
     LOAD64 = enum.auto()
     RETURN = enum.auto()
 
+
 class TokenizationTests(unittest.TestCase):
     def _tokenize_one(self, source: str) -> object:
         return Parser(source).tokenize_one()
-    
+
     def _tokenize(self, source: str) -> object:
         return Parser(source).tokenize()
 
@@ -236,7 +253,7 @@ class TokenizationTests(unittest.TestCase):
 
     def test_tokenize_one_space(self):
         self.assertEqual(self._tokenize_one(" "), (Token.NOP, " "))
-        
+
     def test_tokenize_one_str(self):
         self.assertEqual(self._tokenize_one("asdf"), (Token.STRING, "asdf"))
 
@@ -254,10 +271,21 @@ class TokenizationTests(unittest.TestCase):
         self.assertEqual(self._tokenize("\n\n5"), [(Token.INTEGER, 5)])
 
     def test_tokenize_fixnum_big_number(self):
-        self.assertEqual(self._tokenize(" 4325245623542352 "), [(Token.INTEGER, 4325245623542352)])
+        self.assertEqual(
+            self._tokenize(" 4325245623542352 "), [(Token.INTEGER, 4325245623542352)]
+        )
 
     def test_tokenize_multiple_fixnums(self):
-        self.assertEqual(self._tokenize("5 6 7 7\n\t\t 7 "), [(Token.INTEGER, 5), (Token.INTEGER, 6), (Token.INTEGER, 7), (Token.INTEGER, 7), (Token.INTEGER, 7)])
+        self.assertEqual(
+            self._tokenize("5 6 7 7\n\t\t 7 "),
+            [
+                (Token.INTEGER, 5),
+                (Token.INTEGER, 6),
+                (Token.INTEGER, 7),
+                (Token.INTEGER, 7),
+                (Token.INTEGER, 7),
+            ],
+        )
 
     def test_tokenize_parens(self):
         self.assertEqual(self._tokenize("()"), [(Token.PAREN, "("), (Token.PAREN, ")")])
@@ -266,9 +294,22 @@ class TokenizationTests(unittest.TestCase):
         self.assertEqual(self._tokenize("("), [(Token.PAREN, "(")])
 
     def test_fixnums_in_parens(self):
-        self.assertEqual(self._tokenize("(5(69) 23 5)"), [(Token.PAREN, "("), (Token.INTEGER, 5), (Token.PAREN, "("), (Token.INTEGER, 69), (Token.PAREN, ")"), (Token.INTEGER, 23), (Token.INTEGER, 5), (Token.PAREN, ")")])
+        self.assertEqual(
+            self._tokenize("(5(69) 23 5)"),
+            [
+                (Token.PAREN, "("),
+                (Token.INTEGER, 5),
+                (Token.PAREN, "("),
+                (Token.INTEGER, 69),
+                (Token.PAREN, ")"),
+                (Token.INTEGER, 23),
+                (Token.INTEGER, 5),
+                (Token.PAREN, ")"),
+            ],
+        )
 
     # TODO: Test tokenizeing of unary and binary operations
+
 
 # TODO: Add unary operation expression parsing tests. Look for errors with multiple args, and no args. Ensure correct parsing with one arg.
 # TODO: Same with binary operations
@@ -282,7 +323,7 @@ class ParseTests(unittest.TestCase):
 
     def test_parse_nothing(self):
         self.assertEqual(self._parse(""), "")
-    
+
     def test_parse_fixnum(self):
         self.assertEqual(self._parse("42"), (Token.INTEGER, 42))
 
@@ -293,18 +334,30 @@ class ParseTests(unittest.TestCase):
         self.assertEqual(self._parse("\n\n5"), (Token.INTEGER, 5))
 
     def test_parse_fixnum_big_number(self):
-        self.assertEqual(self._parse(" 4325245623542352 "), (Token.INTEGER, 4325245623542352))
+        self.assertEqual(
+            self._parse(" 4325245623542352 "), (Token.INTEGER, 4325245623542352)
+        )
 
     def test_parse_binop(self):
-        self.assertEqual(self._parse("(* 5 6)"), [(Token.BINOP, '*'), (Token.INTEGER, 5), (Token.INTEGER, 6)])
-        
+        self.assertEqual(
+            self._parse("(* 5 6)"),
+            [(Token.BINOP, "*"), (Token.INTEGER, 5), (Token.INTEGER, 6)],
+        )
+
     def test_parse_binop_too_many_args(self):
         with self.assertRaises(ValueError):
             self._parse("(* 5 6 7)")
 
     def test_parse_layered_binops_and_parens(self):
-        self.assertEqual(self._parse("(+ 1 (* ((2)) 3))"), [(Token.BINOP, "+"), (Token.INTEGER, 1), [(Token.BINOP, "*"), [[(Token.INTEGER, 2)]], (Token.INTEGER, 3)]])
-    
+        self.assertEqual(
+            self._parse("(+ 1 (* ((2)) 3))"),
+            [
+                (Token.BINOP, "+"),
+                (Token.INTEGER, 1),
+                [(Token.BINOP, "*"), [[(Token.INTEGER, 2)]], (Token.INTEGER, 3)],
+            ],
+        )
+
     def test_parse_balanced_parens_simple(self):
         self.assertEqual(self._parse("( 5 )"), [(Token.INTEGER, 5)])
 
@@ -320,6 +373,7 @@ class ParseTests(unittest.TestCase):
     # def test_parse_unary_op(self):
     #     self.assertEqual(self._parse(""))
 
+
 class BoxTests(unittest.TestCase):
     def test_box_fixnum(self):
         self.assertEqual(ptr_types["fixnum"].box(5), struct.pack("<Q", 0b10111))
@@ -330,12 +384,14 @@ class BoxTests(unittest.TestCase):
     def test_box_fixnum_roundtrip(self):
         self.assertEqual(ptr_types["fixnum"].unbox(ptr_types["fixnum"].box(29)), 29)
 
+
 def compile_program():
     source = sys.stdin.read()
     program = scheme_parse(source)
     compiler = Compiler()
     compiler.compile_function(program)
     compiler.write_to_stream(sys.stdout)
+
 
 if __name__ == "__main__":
     compile_program()
