@@ -4,6 +4,7 @@ import struct
 import sys
 from dataclasses import dataclass
 from typing import Callable, Any, Tuple, List
+from collections.abc import Iterator
 
 # TODO: Add parser tests
 # TODO: Write DFS traversal for parser
@@ -28,11 +29,11 @@ class PtrType:
     tag: int
     shift: int
     # non-trivial function for non integer types
-    to_int: Callable[Any, int]
-    from_ptr: Callable[int, Any]
+    to_int: Callable[[Any], int]
+    from_ptr: Callable[[int], Any]
 
     def match_type(self, value: bytes) -> bool:
-        return (struct.unpack("<Q", value) & self.mask) == self.tag
+        return (struct.unpack("<Q", value)[0] & self.mask) == self.tag
 
     # Convert value to integer, then do the following
     # Left shift, remove overflow bits, xor tag (add works too)
@@ -129,7 +130,7 @@ class Parser:
                 self.tokens.append(token_tuple)
         return self.tokens
 
-    def parse_expr(self, expr: List[Tuple(Token, object)]) -> object:
+    def parse_expr(self, expr: List[tuple[Token, object]]) -> Iterator:
         if expr == []:
             return ""
         match expr.pop(0):
@@ -164,7 +165,7 @@ class Parser:
                 raise ValueError(f"Unexpected token: '{tok}'")
 
     # TODO: Make the type of opcodes more specific than object
-    def parse(self) -> List[object]:
+    def parse(self) -> str | List[object]:
         tokens = self.tokens[:]
         # Use the default value of "" in case there are no tokens
         self.ast = next(self.parse_expr(tokens), "")
@@ -174,7 +175,7 @@ class Parser:
             )
         return self.ast
 
-    def peek(self, pos=None) -> chr:
+    def peek(self, pos=None) -> str:
         if pos is None:
             pos = self.pos
         if pos >= self.length:
@@ -212,17 +213,16 @@ class Compiler:
     def compile(self, expr):
         emit = self.code.append
         match expr:
-            case int(x):
-                for pt in ptr_types:
-                    if pt.match_type(x):
+            case bytes(x):
+                for _, ptr_type in ptr_types.items():
+                    if ptr_type.match_type(x):
                         # replace this with codegen, right now it's hand jammed to only work for fixnums
                         emit(Insn.LOAD64)
-                        emit(pt.box(expr))
+                        emit(ptr_type.box(expr))
                         return
                 raise ValueError(f"No ptr_type matches tag for '{x}'".format(x))
             case x:
                 raise ValueError(f"No code generation for '{x}'".format(x))
-        return
 
     def compile_function(self, expr):
         self.compile(expr)
