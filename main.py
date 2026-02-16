@@ -14,8 +14,6 @@ from collections.abc import Iterator
 # TODO: Add codegen tests
 # TODO: Write interpreter
 # TODO: Add interpreter tests
-# TODO: Add unary functiosn
-# TODO: Add unary function tests
 
 WHITESPACE = " \t\n"
 
@@ -59,6 +57,33 @@ ptr_types = {
     "empty_list": PtrType(8, 0b00101111, 8, identity, identity),
 }
 
+# Note: We assume all unaries begin with an alphabetical character in the tokenizer.
+# If this assumption ever add unaries that do not fit this pattern, we will need to
+# update the tokenizer. Future Yakob, watch out for this one.
+unops = [
+    "add1",
+    "sub1",
+    "integer->char",
+    "char->integer",
+    "null?",
+    "zero?",
+    "not",
+    "integer?",
+    "boolean?",
+]
+
+# Note: We abuse the fact that all of these binary operations are single characters
+# In our tokenizer, it searches for individual charactered binary operations.
+# If we ever want to extend the syntax with a multi-character binary operation,
+# we need to update the tokenizer. Consider yourself warned, future Yakob.
+binops = [
+    "+",
+    "*",
+    "-",
+    "<",
+    "=",
+]
+
 
 class Token(enum.IntEnum):
     NOP = enum.auto()  # No operation
@@ -83,12 +108,9 @@ class Parser:
 
     # Each execution of the tokenize_one function increments self.pos by at least 1 and emits at most 1 token
     # Running tokenize_one iteratively will terminate - either tokenizing the input or yielding an error
-    # TODO: Add keyword support
-    # TODO: Add unary operator support
     def tokenize_one(self) -> Tuple[Token, object]:
         match self.peek():
-            # TODO: Replace these cases with the WHITESPACE variable
-            case " " | "\t" | "\n" as c:
+            case c if c in WHITESPACE:
                 self.pos += 1
                 return (Token.NOP, c)
             case "(":
@@ -97,8 +119,7 @@ class Parser:
             case ")":
                 self.pos += 1
                 return (Token.PAREN, ")")
-            # TODO: Fix some of these unaries
-            case "+" | "-" | "*" | "<" | "=" as c:
+            case c if c in binops:
                 self.pos += 1
                 return (Token.BINOP, c)
             case c if c.isdigit():
@@ -107,13 +128,13 @@ class Parser:
                 self.pos = end
                 return (Token.INTEGER, integer)
             case c if c.isalpha():
-                # TODO: Add keyword support here
-                # We denote string ends as write space barriers or going in and out of nesting
-                # Everything else is fair game
                 end = self.scan_until(lambda c: c in " \t\n()[]")
                 string = self.source[self.pos : end]
                 self.pos = end
-                return (Token.STRING, string)
+                if string in unops:
+                    return (Token.UNOP, string)
+                else:
+                    return (Token.STRING, string)
             case "":
                 raise EOFError(
                     f"Unexpected end of input.\nCurrent tokenization: {self.tokens}\nSource: {self.source}\nCurrent position: {self.pos}"
@@ -164,7 +185,6 @@ class Parser:
             case tok:
                 raise ValueError(f"Unexpected token: '{tok}'")
 
-    # TODO: Make the type of opcodes more specific than object
     def parse(self) -> str | List[object]:
         tokens = self.tokens[:]
         # Use the default value of "" in case there are no tokens
@@ -257,9 +277,16 @@ class TokenizationTests(unittest.TestCase):
     def test_tokenize_one_str(self):
         self.assertEqual(self._tokenize_one("asdf"), (Token.STRING, "asdf"))
 
-    # TODO: Add a keyword test for each type of keyword
-    def test_tokenize_one_kw(self):
-        self.assertEqual(True, True)
+    def test_tokenize_one_add1(self):
+        self.assertEqual(self._tokenize_one("add1"), (Token.UNOP, "add1"))
+
+    def test_tokenize_one_not(self):
+        self.assertEqual(self._tokenize_one("not"), (Token.UNOP, "not"))
+
+    def test_tokenize_one_char_to_int(self):
+        self.assertEqual(
+            self._tokenize_one("char->integer"), (Token.UNOP, "char->integer")
+        )
 
     def test_tokenize_fixnum(self):
         self.assertEqual(self._tokenize("42"), [(Token.INTEGER, 42)])
@@ -273,6 +300,19 @@ class TokenizationTests(unittest.TestCase):
     def test_tokenize_fixnum_big_number(self):
         self.assertEqual(
             self._tokenize(" 4325245623542352 "), [(Token.INTEGER, 4325245623542352)]
+        )
+
+    def test_tokenize_binops(self):
+        self.assertEqual(
+            self._tokenize("+*--=<"),
+            [
+                (Token.BINOP, "+"),
+                (Token.BINOP, "*"),
+                (Token.BINOP, "-"),
+                (Token.BINOP, "-"),
+                (Token.BINOP, "="),
+                (Token.BINOP, "<"),
+            ],
         )
 
     def test_tokenize_multiple_fixnums(self):
@@ -308,12 +348,7 @@ class TokenizationTests(unittest.TestCase):
             ],
         )
 
-    # TODO: Test tokenizeing of unary and binary operations
 
-
-# TODO: Add unary operation expression parsing tests. Look for errors with multiple args, and no args. Ensure correct parsing with one arg.
-# TODO: Same with binary operations
-# TODO: Add tests for balanced parentheses
 class ParseTests(unittest.TestCase):
     def _parse(self, source: str) -> object:
         p = Parser(source)
@@ -336,6 +371,30 @@ class ParseTests(unittest.TestCase):
     def test_parse_fixnum_big_number(self):
         self.assertEqual(
             self._parse(" 4325245623542352 "), (Token.INTEGER, 4325245623542352)
+        )
+
+    def test_parse_unop(self):
+        self.assertEqual(
+            self._parse("(not 1)"), [(Token.UNOP, "not"), (Token.INTEGER, 1)]
+        )
+
+    def test_nested_unops(self):
+        print(self._parse("(add1 (sub1 (integer->char (char->integer (null? 0)))))"))
+        self.assertEqual(
+            self._parse("(add1 (sub1 (integer->char (char->integer (null? 0)))))"),
+            [
+                (Token.UNOP, "add1"),
+                [
+                    (Token.UNOP, "sub1"),
+                    [
+                        (Token.UNOP, "integer->char"),
+                        [
+                            (Token.UNOP, "char->integer"),
+                            [(Token.UNOP, "null?"), (Token.INTEGER, 0)],
+                        ],
+                    ],
+                ],
+            ],
         )
 
     def test_parse_binop(self):
@@ -368,10 +427,6 @@ class ParseTests(unittest.TestCase):
     def test_parse_dangling_close_parens(self):
         with self.assertRaises(ValueError):
             self._parse(")")
-
-    # TODO: Add and test unary operators
-    # def test_parse_unary_op(self):
-    #     self.assertEqual(self._parse(""))
 
 
 class BoxTests(unittest.TestCase):
