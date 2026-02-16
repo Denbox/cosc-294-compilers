@@ -6,7 +6,6 @@ from dataclasses import dataclass
 from typing import Callable, Any, Tuple, List
 from collections.abc import Iterator
 
-# TODO: Add parser tests
 # TODO: Write DFS traversal for parser
 # TODO: Add DFS tests
 # TODO: Add box and unbox tests for all other types
@@ -26,9 +25,7 @@ class PtrType:
     mask: int
     tag: int
     shift: int
-    # non-trivial function for non integer types
     to_int: Callable[[Any], int]
-    from_ptr: Callable[[int], Any]
 
     def match_type(self, value: bytes) -> bool:
         return (struct.unpack("<Q", value)[0] & self.mask) == self.tag
@@ -40,21 +37,12 @@ class PtrType:
             "<Q", ((self.to_int(value) << self.shift) & PTR_MAX) + self.tag
         )
 
-    # We assume the type has already been matched with `match_type`
-    # unpack and unshift the proper amount, and convert value
-    def unbox(self, value: bytes) -> Any:
-        return self.from_ptr(struct.unpack("<Q", value)[0] >> self.shift)
-
-
-def identity(x):
-    return x
-
 
 ptr_types = {
-    "fixnum": PtrType(2, 0b00000011, 2, identity, identity),
-    "bool": PtrType(7, 0b00011111, 7, identity, identity),
-    "char": PtrType(8, 0b00001111, 8, identity, identity),
-    "empty_list": PtrType(8, 0b00101111, 8, identity, identity),
+    "fixnum": PtrType(2, 0b00000011, 2, lambda x: x),
+    "bool": PtrType(7, 0b00011111, 7, lambda x: int(x)),
+    "char": PtrType(8, 0b00001111, 8, lambda x: x),  # TODO: Fix this
+    "empty_list": PtrType(8, 0b00101111, 8, lambda _: 0),  # TODO: Is this right?
 }
 
 # Note: We assume all unaries begin with an alphabetical character in the tokenizer.
@@ -186,6 +174,7 @@ class Parser:
                 raise ValueError(f"Unexpected token: '{tok}'")
 
     def parse(self) -> str | List[object]:
+        self.tokenize()
         tokens = self.tokens[:]
         # Use the default value of "" in case there are no tokens
         self.ast = next(self.parse_expr(tokens), "")
@@ -429,20 +418,17 @@ class ParseTests(unittest.TestCase):
             self._parse(")")
 
 
+# TODO: Add more box tests for different types besides fixnum
 class BoxTests(unittest.TestCase):
     def test_box_fixnum(self):
         self.assertEqual(ptr_types["fixnum"].box(5), struct.pack("<Q", 0b10111))
 
-    def test_unbox_fixnum(self):
-        self.assertEqual(ptr_types["fixnum"].unbox(struct.pack("<Q", 0b10111)), 5)
-
-    def test_box_fixnum_roundtrip(self):
-        self.assertEqual(ptr_types["fixnum"].unbox(ptr_types["fixnum"].box(29)), 29)
-
 
 def compile_program():
     source = sys.stdin.read()
+    print("Source:", source)
     program = scheme_parse(source)
+    print("Program:", program)
     compiler = Compiler()
     compiler.compile_function(program)
     compiler.write_to_stream(sys.stdout)
