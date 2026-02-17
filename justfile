@@ -6,3 +6,4 @@ test-compiler:
 
 test-interpreter:
     @echo "Running interpreter tests"
+    cd interpreter && cargo test

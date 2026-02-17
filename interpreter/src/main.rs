@@ -6,21 +6,21 @@ enum Insn {
     RETURN,
 }
 
-struct Pointer {
+// struct Pointer {
     
-}
+// }
 
 // TODO: Fill this in and maybe fix the type
 fn unbox(qword: u64) -> Result<u64, MachineError> {
     Ok(qword)
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 enum MachineError {
-    EmptyStackRead(String),
-    EmptyStackPop(String),
-    InvalidAddress(String),
-    InvalidPointerType(String),
+    // EmptyStackRead,
+    EmptyStackPop,
+    InvalidAddress,
+    // InvalidPointerType,
 }
 
 impl fmt::Display for MachineError {
@@ -47,14 +47,14 @@ impl Machine {
     fn pop(&mut self) -> Result<u64, MachineError> {
         match self.stack.pop() {
             Some(qword) => { Ok(qword) }
-            None => { Err(MachineError::EmptyStackPop(format!("Cannot pop from empty stack"))) }
+            None => { Err(MachineError::EmptyStackPop) }
         }
     }
 
     fn read_insn(&mut self) -> Result<Insn, MachineError> {
         match self.code.get(self.pc as usize) {
             Some(insn) => { Ok(*insn) }
-            None => Err(MachineError::InvalidAddress(format!("Cannot read word with pc={} when the code length={}", self.pc, self.code.len())))
+            None => Err(MachineError::InvalidAddress)
         }
     }
     
@@ -89,5 +89,18 @@ fn main() -> Result<(), MachineError> {
 }
 
 // TODO: Add test harness here
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_empty_pop_fails() {
+        let mut machine = Machine { pc: 0, code: vec![], stack: vec![] };
+        let value = machine.pop();
+        assert!(matches!(value, Err(MachineError::EmptyStackPop)));
+    }
+
+    // TODO: Add more machine error failure modes
+}
 // TODO: Add unbox tests
 // TODO: Add interpreter tests
