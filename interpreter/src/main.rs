@@ -7,7 +7,7 @@ enum Insn {
 }
 
 // struct Pointer {
-    
+
 // }
 
 // TODO: Fill this in and maybe fix the type
@@ -17,7 +17,6 @@ fn unbox(qword: u64) -> Result<u64, MachineError> {
 
 #[derive(Debug)]
 enum MachineError {
-    // EmptyStackRead,
     EmptyStackPop,
     InvalidAddress,
     // InvalidPointerType,
@@ -37,7 +36,11 @@ struct Machine {
 
 impl Machine {
     pub fn new(code: Vec<Insn>) -> Self {
-        Self { pc: 0, code, stack: vec![] }
+        Self {
+            pc: 0,
+            code,
+            stack: vec![],
+        }
     }
 
     fn push(&mut self, qword: u64) {
@@ -46,26 +49,26 @@ impl Machine {
 
     fn pop(&mut self) -> Result<u64, MachineError> {
         match self.stack.pop() {
-            Some(qword) => { Ok(qword) }
-            None => { Err(MachineError::EmptyStackPop) }
+            Some(qword) => Ok(qword),
+            None => Err(MachineError::EmptyStackPop),
         }
     }
 
     fn read_insn(&mut self) -> Result<Insn, MachineError> {
         match self.code.get(self.pc as usize) {
-            Some(insn) => { Ok(*insn) }
-            None => Err(MachineError::InvalidAddress)
+            Some(insn) => Ok(*insn),
+            None => Err(MachineError::InvalidAddress),
         }
     }
-    
+
     fn interpret(&mut self) -> Result<u64, MachineError> {
         while self.pc < self.code.len() as u64 {
             match self.read_insn()? {
                 Insn::LOAD64(qword) => {
                     // unbox and put onto the stack
                     self.push(unbox(qword)?);
-                },
-                Insn::RETURN => {},
+                }
+                Insn::RETURN => {}
             }
         }
         Ok(self.pc)
@@ -77,7 +80,7 @@ impl Machine {
 fn main() -> Result<(), MachineError> {
     println!("Hello, world!");
     // Read bytecode
-    // 
+    //
     // Instantiate machine
     // TODO: Replace the handjammed instructions with STDIN or file
     let code = vec![Insn::LOAD64(5), Insn::RETURN];
@@ -95,9 +98,24 @@ mod tests {
 
     #[test]
     fn test_empty_pop_fails() {
-        let mut machine = Machine { pc: 0, code: vec![], stack: vec![] };
+        let mut machine = Machine {
+            pc: 0,
+            code: vec![],
+            stack: vec![],
+        };
         let value = machine.pop();
         assert!(matches!(value, Err(MachineError::EmptyStackPop)));
+    }
+
+    #[test]
+    fn test_read_end_of_code() {
+        let mut machine = Machine {
+            pc: 2,
+            code: vec![Insn::LOAD64(5), Insn::RETURN],
+            stack: vec![],
+        };
+        let value = machine.read_insn();
+        assert!(matches!(value, Err(MachineError::InvalidAddress)));
     }
 
     // TODO: Add more machine error failure modes
