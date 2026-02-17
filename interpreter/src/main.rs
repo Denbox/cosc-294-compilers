@@ -6,13 +6,21 @@ enum Insn {
     RETURN,
 }
 
-// TODO: Fix Error type to be more specific
-// TODO: Add error type with ok_or_else into interpreter
+struct Pointer {
+    
+}
+
+// TODO: Fill this in and maybe fix the type
+fn unbox(qword: u64) -> Result<u64, MachineError> {
+    Ok(qword)
+}
+
 #[derive(Debug, Clone)]
 enum MachineError {
     EmptyStackRead(String),
     EmptyStackPop(String),
     InvalidAddress(String),
+    InvalidPointerType(String),
 }
 
 impl fmt::Display for MachineError {
@@ -24,7 +32,7 @@ impl fmt::Display for MachineError {
 struct Machine {
     pc: u64, // 64 bits is far more than necessary but it's okay
     code: Vec<Insn>,
-    stack: Vec<Insn>,
+    stack: Vec<u64>,
 }
 
 impl Machine {
@@ -32,28 +40,31 @@ impl Machine {
         Self { pc: 0, code, stack: vec![] }
     }
 
-    fn push(&mut self, i: Insn) {
-        self.stack.push(i);
+    fn push(&mut self, qword: u64) {
+        self.stack.push(qword);
     }
 
-    fn pop(&mut self) -> Result<Insn, MachineError> {
+    fn pop(&mut self) -> Result<u64, MachineError> {
         match self.stack.pop() {
-            Some(insn) => { Ok(insn) }
+            Some(qword) => { Ok(qword) }
             None => { Err(MachineError::EmptyStackPop(format!("Cannot pop from empty stack"))) }
         }
     }
 
-    fn read_word(&mut self) -> Result<Insn, MachineError> {
+    fn read_insn(&mut self) -> Result<Insn, MachineError> {
         match self.code.get(self.pc as usize) {
             Some(insn) => { Ok(*insn) }
             None => Err(MachineError::InvalidAddress(format!("Cannot read word with pc={} when the code length={}", self.pc, self.code.len())))
         }
     }
-
+    
     fn interpret(&mut self) -> Result<u64, MachineError> {
         while self.pc < self.code.len() as u64 {
-            match self.read_word()? {
-                Insn::LOAD64(bits) => {},
+            match self.read_insn()? {
+                Insn::LOAD64(qword) => {
+                    // unbox and put onto the stack
+                    self.push(unbox(qword)?);
+                },
                 Insn::RETURN => {},
             }
         }
@@ -63,16 +74,18 @@ impl Machine {
 
 // TODO: Add some mechanism to run from a file listing of bytecode
 // TODO: Add some mechanism to run from STDIN of a bytecode listing
-fn main() {
+fn main() -> Result<(), MachineError> {
     println!("Hello, world!");
     // Read bytecode
     // 
     // Instantiate machine
     // TODO: Replace the handjammed instructions with STDIN or file
     let code = vec![Insn::LOAD64(5), Insn::RETURN];
-    let machine = Machine::new(code);
+    let mut machine = Machine::new(code);
     //
     // Execute interpreter
+    machine.interpret()?;
+    Ok(())
 }
 
 // TODO: Add test harness here
