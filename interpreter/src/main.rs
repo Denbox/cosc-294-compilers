@@ -39,7 +39,7 @@ impl Machine {
     fn pop(&mut self) -> Result<Insn, MachineError> {
         match self.stack.pop() {
             Some(insn) => { Ok(insn) }
-            None => { Err(MachineError::EmptyStackPop("Cannot pop from empty stack".to_string())) }
+            None => { Err(MachineError::EmptyStackPop(format!("Cannot pop from empty stack"))) }
         }
     }
 
@@ -50,12 +50,14 @@ impl Machine {
         }
     }
 
-    fn interpret(&mut self) {
+    fn interpret(&mut self) -> Result<u64, MachineError> {
         while self.pc < self.code.len() as u64 {
-            match self.read_word() {
-                
+            match self.read_word()? {
+                Insn::LOAD64(bits) => {},
+                Insn::RETURN => {},
             }
-        }        
+        }
+        Ok(self.pc)
     }
 }
 
