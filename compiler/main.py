@@ -215,9 +215,23 @@ def scheme_parse(source: str) -> object:
 
 
 class Compiler:
-    def __init__(self):
+    def __init__(self, ast):
+        self.ast = ast
         self.code = []
         self.max_locals_count = 0
+
+    # TODO: Fill this in per expression to handle all cases
+    # TODO: Write a compile function that works on ast and calls compile_expr repeatedly
+    # TODO: Create bytecode class that emits the proper things
+    # The compile_expr function is a BFS traversal
+    def compile_expr(self, expr):
+        emit = self.code.append
+        match expr:
+            case [(Token.BINOP, op), arg1, arg2]:
+                yield from self.compile_expr(arg1)
+                yield from self.compile_expr(arg2)
+                yield (BYTECODE_OP_GOES_HERE, op)
+                pass
 
     def compile(self, expr):
         emit = self.code.append
