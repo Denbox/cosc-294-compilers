@@ -48,29 +48,31 @@ ptr_types = {
 # Note: We assume all unaries begin with an alphabetical character in the tokenizer.
 # If this assumption ever add unaries that do not fit this pattern, we will need to
 # update the tokenizer. Future Yakob, watch out for this one.
-unops = [
-    "add1",
-    "sub1",
-    "integer->char",
-    "char->integer",
-    "null?",
-    "zero?",
-    "not",
-    "integer?",
-    "boolean?",
-]
+# Keys are valid scheme keywords and values are bytecode instructions
+unops = {
+    "add1": "ADD1",
+    "sub1": "SUB1",
+    "integer->char": "TOCHAR",
+    "char->integer": "TOINT",
+    "null?": "NULLPRED",
+    "zero?": "ZEROPRED",
+    "not": "NOT",
+    "integer?": "INTPRED",
+    "boolean?": "BOOLPRED",
+}
 
 # Note: We abuse the fact that all of these binary operations are single characters
 # In our tokenizer, it searches for individual charactered binary operations.
 # If we ever want to extend the syntax with a multi-character binary operation,
 # we need to update the tokenizer. Consider yourself warned, future Yakob.
-binops = [
-    "+",
-    "*",
-    "-",
-    "<",
-    "=",
-]
+# Keys are valid scheme keywords and values are bytecode instructions
+binops = {
+    "+": "ADD",
+    "*": "MULT",
+    "-": "SUB",
+    "<": "LESS",
+    "=": "EQUAL",
+}
 
 
 class Token(enum.IntEnum):
@@ -214,6 +216,13 @@ def scheme_parse(source: str) -> object:
     return Parser(source).parse()
 
 
+class Insn(enum.IntEnum):
+    LOAD64 = enum.auto()
+    UNOP = enum.auto()
+    BINOP = enum.auto()
+    RETURN = enum.auto()
+
+
 class Compiler:
     def __init__(self, ast):
         self.ast = ast
@@ -225,40 +234,40 @@ class Compiler:
     # TODO: Create bytecode class that emits the proper things
     # The compile_expr function is a BFS traversal
     def compile_expr(self, expr):
-        emit = self.code.append
         match expr:
             case [(Token.BINOP, op), arg1, arg2]:
                 yield from self.compile_expr(arg1)
                 yield from self.compile_expr(arg2)
-                yield (BYTECODE_OP_GOES_HERE, op)
-                pass
-
-    def compile(self, expr):
-        emit = self.code.append
-        match expr:
-            case bytes(x):
-                for _, ptr_type in ptr_types.items():
-                    if ptr_type.match_type(x):
-                        # replace this with codegen, right now it's hand jammed to only work for fixnums
-                        emit(Insn.LOAD64)
-                        emit(ptr_type.box(expr))
-                        return
-                raise ValueError(f"No ptr_type matches tag for '{x}'".format(x))
+                # TODO: Replace tuple with box of binop
+                yield (Insn.BINOP, op)
+            case [(Token.UNOP, op), arg1]:
+                yield from self.compile_expr(arg1)
+                # TODO: Replace tuple with box of unop
+                yield (Insn.UNOP, op)
+            case [(Token.INTEGER, value)]:
+                # TODO: Replace tuple with box of fixnum
+                yield (Insn.LOAD64, ptr_types["fixnum"].box(value))
+            case []:
+                raise ValueError("No expression to compile.")
             case x:
-                raise ValueError(f"No code generation for '{x}'".format(x))
+                raise ValueError(f"Unexpected expression for compilation: {x}")
 
     def compile_function(self, expr):
-        self.compile(expr)
-        self.code.append(Insn.RETURN)
+        # TODO: Replace return tuple with box of return
+        return list(self.compile_expr(expr)) + [(Insn.RETURN, None)]
 
+    def compile(self):
+        self.code = self.compile_function(self.ast)
+
+    # TODO: Improve the representation of bytecode to each be 64 bits
+    # This means replacing all the opcodes with some shift like in the scheme paper
+    # We can use a simple tag for "keyword" and these get indexed for each keyword
+    # To make this easy to extract back into rust, we can have have a python generated module
+    # with the right unbox information and such
     def write_to_stream(self, f):
         for op in self.code:
+            # TODO: Replace to_bytes with struct pack of some kind
             f.write(op.to_bytes(8, "little"))
-
-
-class Insn(enum.IntEnum):
-    LOAD64 = enum.auto()
-    RETURN = enum.auto()
 
 
 class TokenizationTests(unittest.TestCase):
@@ -431,7 +440,7 @@ class ParseTests(unittest.TestCase):
             self._parse(")")
 
 
-# TODO: Add more box tests for different types besides fixnum
+# TODO: Add box tests for other types including return, binops, unops, etc
 class BoxTests(unittest.TestCase):
     def test_box_fixnum(self):
         self.assertEqual(ptr_types["fixnum"].box(5), struct.pack("<Q", 0b10111))
@@ -440,7 +449,7 @@ class BoxTests(unittest.TestCase):
 def compile_program():
     source = sys.stdin.read()
     program = scheme_parse(source)
-    compiler = Compiler()
+    compiler = Compiler(program)
     compiler.compile_function(program)
     compiler.write_to_stream(sys.stdout)
 
