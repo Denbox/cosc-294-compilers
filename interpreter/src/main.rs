@@ -1,27 +1,8 @@
 use std::fmt;
 
-// TODO: Load instruction from an external file, this should be generated python
-// TODO: Same thing for unboxing (and aligning this to Insns)
-#[derive(Debug, Clone)]
-enum Insn {
-    LOAD64(u64),
-    // TODO: Replace binop and unop with enum types rather than string
-    // These enum types correspond to the python generated stuff
-    BINOP(String),
-    UNOP(String),
-    RETURN,
-}
-
-// struct Pointer {
-
-// }
-
-// TODO: Fill this in and maybe fix the type
-// TODO: Move unbox to the generated python function
-fn unbox(qword: u64) -> Option<Insn> {
-    // TODO: Replace me to actually be a valid unbox
-    Some(Insn::RETURN)
-}
+mod bytecode;
+mod codegen;
+use crate::bytecode::Insn;
 
 #[derive(Debug)]
 enum MachineError {
@@ -65,7 +46,7 @@ impl Machine {
 
     fn read_insn(&mut self, index: u64) -> Result<Insn, MachineError> {
         match self.code.get(index as usize) {
-            Some(bits) => unbox(*bits).ok_or(MachineError::InvalidOpcode),
+            Some(bits) => bytecode::unbox(*bits).ok_or(MachineError::InvalidOpcode),
             None => Err(MachineError::InvalidAddress),
         }
     }
@@ -81,9 +62,12 @@ impl Machine {
                     let arg2 = self.pop();
                     let arg1 = self.pop();
                     // TODO: Fill out with all other codegen functions and figure out a clean way to handle this
+                    // TODO: Match the operation as an Insn type, not string
                     let value = match op.as_str() {
                         // TODO: Put codegen into its own file somehow
-                        "ADD" => codegen_add(arg1, arg2),
+                        // TODO: Add check that arg1 and arg2 are both fixnum
+                        // TODO: This is more of a design question. Where should such checks be handled??
+                        "ADD" => codegen::add(arg1, arg2),
                         _ => MachineError::InvalidOperation,
                     };
                     self.push(value);
@@ -124,7 +108,6 @@ fn main() -> Result<(), MachineError> {
     Ok(())
 }
 
-// TODO: Add test harness here
 #[cfg(test)]
 mod tests {
     use super::*;

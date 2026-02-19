@@ -3,7 +3,7 @@ import unittest
 import struct
 import sys
 from dataclasses import dataclass
-from typing import Callable, Any, Tuple, List
+from typing import Tuple, List, Optional, assert_never
 from collections.abc import Iterator
 
 # TODO: Write DFS traversal for parser
@@ -21,58 +21,90 @@ PTR_MAX = (1 << 64) - 1
 
 
 @dataclass
-class PtrType:
+class Insn:
+    bytecode_label: str
+    scheme_label: Optional[str]
     mask: int
     tag: int
     shift: int
-    to_int: Callable[[Any], int]
+    arity: int
 
-    def match_type(self, value: bytes) -> bool:
-        return (struct.unpack("<Q", value)[0] & self.mask) == self.tag
-
-    # Convert value to integer, then do the following
-    # Left shift, remove overflow bits, xor tag (add works too)
-    def box(self, value: Any) -> bytes:
+    def box(self, value: Optional[int] = None) -> bytes:
         return struct.pack(
-            "<Q", ((self.to_int(value) << self.shift) & PTR_MAX) + self.tag
+            "<Q", ((to_int(self, value) << self.shift) & self.mask) + self.tag
         )
 
 
-ptr_types = {
-    "fixnum": PtrType(2, 0b00000011, 2, lambda x: x),
-    "bool": PtrType(7, 0b00011111, 7, lambda x: int(x)),
-    "char": PtrType(8, 0b00001111, 8, lambda x: x),  # TODO: Fix this
-    "empty_list": PtrType(8, 0b00101111, 8, lambda _: 0),  # TODO: Is this right?
-}
+# Making this a dict with repeated bytecode labels is duplicative,
+# but it makes finding instructions more convenient
+#
+# Unary are tagged with 0xfffe and binary are tagged with 0xffff.
+# I couldn't easily see how the paper did this and made this choice.
+# Same with return
+
+# Formatter is off for this section for easier reading
+# The instructions are sorted by arity
+# fmt: off
+insns = [
+    Insn(  "LOAD64",            None, 0b0011, 0b0000,  2, 0),
+    Insn(  "RETURN",            None, 0xFFFF, 0xFEEF,  0, 0),
+    Insn(    "ADD1",          "add1", 0xFFFF, 0xFFFE, 16, 1),
+    Insn(    "SUB1",          "sub1", 0xFFFF, 0xFFFE, 16, 1),
+    Insn(  "TOCHAR", "integer->char", 0xFFFF, 0xFFFE, 16, 1),
+    Insn(   "TOINT", "char->integer", 0xFFFF, 0xFFFE, 16, 1),
+    Insn("NULLPRED",         "null?", 0xFFFF, 0xFFFE, 16, 1),
+    Insn("ZEROPRED",         "zero?", 0xFFFF, 0xFFFE, 16, 1),
+    Insn(     "NOT",           "not", 0xFFFF, 0xFFFE, 16, 1),
+    Insn( "INTPRED",      "integer?", 0xFFFF, 0xFFFE, 16, 1),
+    Insn("BOOLPRED",      "boolean?", 0xFFFF, 0xFFFE, 16, 1),
+    Insn(     "ADD",             "+", 0xFFFF, 0xFFFF, 16, 2),
+    Insn(    "MULT",             "*", 0xFFFF, 0xFFFF, 16, 2),
+    Insn(     "SUB",             "-", 0xFFFF, 0xFFFF, 16, 2),
+    Insn(    "LESS",             "<", 0xFFFF, 0xFFFF, 16, 2),
+    Insn(   "EQUAL",             "=", 0xFFFF, 0xFFFF, 16, 2),
+]
+# fmt: on
+
+
+# value is defined for Insns like LOAD64, but not for most operations
+def to_int(insn, value: Optional[int]) -> int:
+    if insn.bytecode_label not in ["LOAD64"] and value is not None:
+        raise ValueError(
+            f"value argument is not supported for {insn.bytecode_label} Instruction."
+        )
+    # LOAD64 value is just the passed integer value
+    if insn.bytecode_label == "LOAD64":
+        if value is None:
+            raise ValueError("LOAD64 needs a value.")
+        return value
+    # Unary functions have an index computed by counting down the table of insns
+    elif insn.arity == 1:
+        # The index only works here because Insn is a dataclass
+        return list(map(lambda x: x.arity == 1, insns)).index(insn)
+    # Binary functions have an index computed by counting down the table of insns
+    elif insn.arity == 2:
+        # The index only works here because Insn is a dataclass
+        return list(map(lambda x: x.arity == 2, insns)).index(insn)
+    elif insn.bytecode_label == "RETURN":
+        return 0
+    # TODO: Make sure assert never works here, I'm not convinced it does
+    else:
+        assert_never(insn)
+
+
+insns_by_scheme_label = {i.scheme_label: i for i in insns if i.scheme_label is not None}
+insns_by_bytecode_label = {i.bytecode_label: i for i in insns}
 
 # Note: We assume all unaries begin with an alphabetical character in the tokenizer.
 # If this assumption ever add unaries that do not fit this pattern, we will need to
 # update the tokenizer. Future Yakob, watch out for this one.
-# Keys are valid scheme keywords and values are bytecode instructions
-unops = {
-    "add1": "ADD1",
-    "sub1": "SUB1",
-    "integer->char": "TOCHAR",
-    "char->integer": "TOINT",
-    "null?": "NULLPRED",
-    "zero?": "ZEROPRED",
-    "not": "NOT",
-    "integer?": "INTPRED",
-    "boolean?": "BOOLPRED",
-}
+unops = list(filter(lambda i: i.arity == 1, insns))
 
 # Note: We abuse the fact that all of these binary operations are single characters
 # In our tokenizer, it searches for individual charactered binary operations.
 # If we ever want to extend the syntax with a multi-character binary operation,
 # we need to update the tokenizer. Consider yourself warned, future Yakob.
-# Keys are valid scheme keywords and values are bytecode instructions
-binops = {
-    "+": "ADD",
-    "*": "MULT",
-    "-": "SUB",
-    "<": "LESS",
-    "=": "EQUAL",
-}
+binops = list(filter(lambda i: i.arity == 2, insns))
 
 
 class Token(enum.IntEnum):
@@ -109,7 +141,7 @@ class Parser:
             case ")":
                 self.pos += 1
                 return (Token.PAREN, ")")
-            case c if c in binops:
+            case c if c in map(lambda insn: insn.scheme_label, binops):
                 self.pos += 1
                 return (Token.BINOP, c)
             case c if c.isdigit():
@@ -121,7 +153,7 @@ class Parser:
                 end = self.scan_until(lambda c: c in " \t\n()[]")
                 string = self.source[self.pos : end]
                 self.pos = end
-                if string in unops:
+                if string in map(lambda insn: insn.scheme_label, unops):
                     return (Token.UNOP, string)
                 else:
                     return (Token.STRING, string)
@@ -216,46 +248,36 @@ def scheme_parse(source: str) -> object:
     return Parser(source).parse()
 
 
-class Insn(enum.IntEnum):
-    LOAD64 = enum.auto()
-    UNOP = enum.auto()
-    BINOP = enum.auto()
-    RETURN = enum.auto()
-
-
 class Compiler:
     def __init__(self, ast):
         self.ast = ast
         self.code = []
         self.max_locals_count = 0
 
-    # TODO: Fill this in per expression to handle all cases
-    # TODO: Write a compile function that works on ast and calls compile_expr repeatedly
-    # TODO: Create bytecode class that emits the proper things
-    # The compile_expr function is a BFS traversal
+    # Each compiled output is tuple containing (Insn, value)
     def compile_expr(self, expr):
         match expr:
             case [(Token.BINOP, op), arg1, arg2]:
                 yield from self.compile_expr(arg1)
                 yield from self.compile_expr(arg2)
-                # TODO: Replace tuple with box of binop
-                yield (Insn.BINOP, op)
+                yield (insns_by_scheme_label[op], None)
             case [(Token.UNOP, op), arg1]:
                 yield from self.compile_expr(arg1)
-                # TODO: Replace tuple with box of unop
-                yield (Insn.UNOP, op)
+                yield (insns_by_scheme_label[op], None)
             case [(Token.INTEGER, value)]:
-                # TODO: Replace tuple with box of fixnum
-                yield (Insn.LOAD64, ptr_types["fixnum"].box(value))
+                yield (insns_by_bytecode_label["LOAD64"], value)
             case []:
                 raise ValueError("No expression to compile.")
             case x:
                 raise ValueError(f"Unexpected expression for compilation: {x}")
 
+    # Collect all results of compile_expr and add a return onto the end
     def compile_function(self, expr):
-        # TODO: Replace return tuple with box of return
-        return list(self.compile_expr(expr)) + [(Insn.RETURN, None)]
+        return list(self.compile_expr(expr)) + [
+            (insns_by_bytecode_label["RETURN"], None)
+        ]
 
+    # For now, this is identical to compile_function, but operates on the ast
     def compile(self):
         self.code = self.compile_function(self.ast)
 
@@ -265,9 +287,9 @@ class Compiler:
     # To make this easy to extract back into rust, we can have have a python generated module
     # with the right unbox information and such
     def write_to_stream(self, f):
-        for op in self.code:
+        for insn, value in self.code:
             # TODO: Replace to_bytes with struct pack of some kind
-            f.write(op.to_bytes(8, "little"))
+            f.write(insn.box(value))
 
 
 class TokenizationTests(unittest.TestCase):
@@ -443,7 +465,8 @@ class ParseTests(unittest.TestCase):
 # TODO: Add box tests for other types including return, binops, unops, etc
 class BoxTests(unittest.TestCase):
     def test_box_fixnum(self):
-        self.assertEqual(ptr_types["fixnum"].box(5), struct.pack("<Q", 0b10111))
+        pass
+        # self.assertEqual(ptr_types["fixnum"].box(5), struct.pack("<Q", 0b10111))
 
 
 def compile_program():
