@@ -41,6 +41,15 @@ class Insn:
 # Unary are tagged with 0xfffe and binary are tagged with 0xffff.
 # I couldn't easily see how the paper did this and made this choice.
 # Same with return
+#
+# Note: We assume all unaries begin with an alphabetical character in the tokenizer.
+# If this assumption ever add unaries that do not fit this pattern, we will need to
+# update the tokenizer. Future Yakob, watch out for this one.
+
+# Note: We abuse the fact that all of these binary operations are single characters
+# In our tokenizer, it searches for individual charactered binary operations.
+# If we ever want to extend the syntax with a multi-character binary operation,
+# we need to update the tokenizer. Consider yourself warned, future Yakob.
 
 # Formatter is off for this section for easier reading
 # The instructions are sorted by arity
@@ -95,17 +104,6 @@ def to_int(insn, value: Optional[int]) -> int:
 insns_by_scheme_label = {i.scheme_label: i for i in insns if i.scheme_label is not None}
 insns_by_bytecode_label = {i.bytecode_label: i for i in insns}
 
-# Note: We assume all unaries begin with an alphabetical character in the tokenizer.
-# If this assumption ever add unaries that do not fit this pattern, we will need to
-# update the tokenizer. Future Yakob, watch out for this one.
-unops = list(filter(lambda i: i.arity == 1, insns))
-
-# Note: We abuse the fact that all of these binary operations are single characters
-# In our tokenizer, it searches for individual charactered binary operations.
-# If we ever want to extend the syntax with a multi-character binary operation,
-# we need to update the tokenizer. Consider yourself warned, future Yakob.
-binops = list(filter(lambda i: i.arity == 2, insns))
-
 
 class Token(enum.IntEnum):
     NOP = enum.auto()  # No operation
@@ -141,7 +139,10 @@ class Parser:
             case ")":
                 self.pos += 1
                 return (Token.PAREN, ")")
-            case c if c in map(lambda insn: insn.scheme_label, binops):
+            case c if c in map(
+                lambda insn: insn.scheme_label,
+                filter(lambda insn: insn.arity == 2, insns),
+            ):
                 self.pos += 1
                 return (Token.BINOP, c)
             case c if c.isdigit():
@@ -153,7 +154,10 @@ class Parser:
                 end = self.scan_until(lambda c: c in " \t\n()[]")
                 string = self.source[self.pos : end]
                 self.pos = end
-                if string in map(lambda insn: insn.scheme_label, unops):
+                if string in map(
+                    lambda insn: insn.scheme_label,
+                    filter(lambda insn: insn.arity == 1, insns),
+                ):
                     return (Token.UNOP, string)
                 else:
                     return (Token.STRING, string)
