@@ -1,7 +1,6 @@
 use std::fmt;
 
 mod bytecode;
-mod codegen;
 use crate::bytecode::Insn;
 
 #[derive(Debug)]
