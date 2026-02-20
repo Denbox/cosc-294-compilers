@@ -3,7 +3,7 @@ import unittest
 import struct
 import sys
 from dataclasses import dataclass
-from typing import Tuple, List, Optional, assert_never
+from typing import Tuple, List, Optional
 from collections.abc import Iterator
 
 # TODO: Write DFS traversal for parser
@@ -22,8 +22,8 @@ PTR_MAX = (1 << 64) - 1
 
 @dataclass
 class Insn:
-    bytecode_label: str
-    scheme_label: Optional[str]
+    bytecode: str
+    scheme: Optional[str]
     mask: int
     tag: int
     shift: int
@@ -35,13 +35,6 @@ class Insn:
         )
 
 
-# Making this a dict with repeated bytecode labels is duplicative,
-# but it makes finding instructions more convenient
-#
-# Unary are tagged with 0xfffe and binary are tagged with 0xffff.
-# I couldn't easily see how the paper did this and made this choice.
-# Same with return
-#
 # Note: We assume all unaries begin with an alphabetical character in the tokenizer.
 # If this assumption ever add unaries that do not fit this pattern, we will need to
 # update the tokenizer. Future Yakob, watch out for this one.
@@ -53,56 +46,117 @@ class Insn:
 
 # Formatter is off for this section for easier reading
 # The instructions are sorted by arity
-# fmt: off
 insns = [
-    Insn(  "LOAD64",            None, 0b0011, 0b0000,  2, 0),
-    Insn(  "RETURN",            None, 0xFFFF, 0xFEEF,  0, 0),
-    Insn(    "ADD1",          "add1", 0xFFFF, 0xFFFE, 16, 1),
-    Insn(    "SUB1",          "sub1", 0xFFFF, 0xFFFE, 16, 1),
-    Insn(  "TOCHAR", "integer->char", 0xFFFF, 0xFFFE, 16, 1),
-    Insn(   "TOINT", "char->integer", 0xFFFF, 0xFFFE, 16, 1),
-    Insn("NULLPRED",         "null?", 0xFFFF, 0xFFFE, 16, 1),
-    Insn("ZEROPRED",         "zero?", 0xFFFF, 0xFFFE, 16, 1),
-    Insn(     "NOT",           "not", 0xFFFF, 0xFFFE, 16, 1),
-    Insn( "INTPRED",      "integer?", 0xFFFF, 0xFFFE, 16, 1),
-    Insn("BOOLPRED",      "boolean?", 0xFFFF, 0xFFFE, 16, 1),
-    Insn(     "ADD",             "+", 0xFFFF, 0xFFFF, 16, 2),
-    Insn(    "MULT",             "*", 0xFFFF, 0xFFFF, 16, 2),
-    Insn(     "SUB",             "-", 0xFFFF, 0xFFFF, 16, 2),
-    Insn(    "LESS",             "<", 0xFFFF, 0xFFFF, 16, 2),
-    Insn(   "EQUAL",             "=", 0xFFFF, 0xFFFF, 16, 2),
+    Insn(bytecode="LOAD64", scheme=None, mask=0b11, tag=0b00, shift=2, arity=0),
+    Insn(
+        bytecode="RETURN",
+        scheme=None,
+        mask=0xFFFF0000,
+        tag=0x00010000,
+        shift=32,
+        arity=0,
+    ),
+    Insn(
+        bytecode="ADD1",
+        scheme="add1",
+        mask=0xFFFF0000,
+        tag=0x00020000,
+        shift=32,
+        arity=1,
+    ),
+    Insn(
+        bytecode="SUB1",
+        scheme="sub1",
+        mask=0xFFFF0000,
+        tag=0x00120000,
+        shift=32,
+        arity=1,
+    ),
+    Insn(
+        bytecode="TOCHAR",
+        scheme="integer->char",
+        mask=0xFFFF0000,
+        tag=0x00220000,
+        shift=32,
+        arity=1,
+    ),
+    Insn(
+        bytecode="TOINT",
+        scheme="char->integer",
+        mask=0xFFFF0000,
+        tag=0x00320000,
+        shift=32,
+        arity=1,
+    ),
+    Insn(
+        bytecode="NULLPRED",
+        scheme="null?",
+        mask=0xFFFF0000,
+        tag=0x00420000,
+        shift=32,
+        arity=1,
+    ),
+    Insn(
+        bytecode="ZEROPRED",
+        scheme="zero?",
+        mask=0xFFFF0000,
+        tag=0x00520000,
+        shift=32,
+        arity=1,
+    ),
+    Insn(
+        bytecode="NOT", scheme="not", mask=0xFFFF0000, tag=0x00620000, shift=32, arity=1
+    ),
+    Insn(
+        bytecode="INTPRED",
+        scheme="integer?",
+        mask=0xFFFF0000,
+        tag=0x00720000,
+        shift=32,
+        arity=1,
+    ),
+    Insn(
+        bytecode="BOOLPRED",
+        scheme="boolean?",
+        mask=0xFFFF0000,
+        tag=0x00820000,
+        shift=32,
+        arity=1,
+    ),
+    Insn(
+        bytecode="ADD", scheme="+", mask=0xFFFF0000, tag=0x00030000, shift=32, arity=2
+    ),
+    Insn(
+        bytecode="MULT", scheme="*", mask=0xFFFF0000, tag=0x00130000, shift=32, arity=2
+    ),
+    Insn(
+        bytecode="SUB", scheme="-", mask=0xFFFF0000, tag=0x00230000, shift=32, arity=2
+    ),
+    Insn(
+        bytecode="LESS", scheme="<", mask=0xFFFF0000, tag=0x00330000, shift=32, arity=2
+    ),
+    Insn(
+        bytecode="EQUAL", scheme="=", mask=0xFFFF0000, tag=0x00430000, shift=32, arity=2
+    ),
 ]
-# fmt: on
 
 
 # value is defined for Insns like LOAD64, but not for most operations
 def to_int(insn, value: Optional[int]) -> int:
-    if insn.bytecode_label not in ["LOAD64"] and value is not None:
+    if insn.bytecode not in ["LOAD64"] and value is not None:
         raise ValueError(
-            f"value argument is not supported for {insn.bytecode_label} Instruction."
+            f"value argument is not supported for {insn.bytecode} Instruction."
         )
     # LOAD64 value is just the passed integer value
-    if insn.bytecode_label == "LOAD64":
+    if insn.bytecode == "LOAD64":
         if value is None:
             raise ValueError("LOAD64 needs a value.")
         return value
-    # Unary functions have an index computed by counting down the table of insns
-    elif insn.arity == 1:
-        # The index only works here because Insn is a dataclass
-        return list(map(lambda x: x.arity == 1, insns)).index(insn)
-    # Binary functions have an index computed by counting down the table of insns
-    elif insn.arity == 2:
-        # The index only works here because Insn is a dataclass
-        return list(map(lambda x: x.arity == 2, insns)).index(insn)
-    elif insn.bytecode_label == "RETURN":
-        return 0
-    # TODO: Make sure assert never works here, I'm not convinced it does
-    else:
-        assert_never(insn)
+    return 0
 
 
-insns_by_scheme_label = {i.scheme_label: i for i in insns if i.scheme_label is not None}
-insns_by_bytecode_label = {i.bytecode_label: i for i in insns}
+insns_by_scheme = {i.scheme: i for i in insns if i.scheme is not None}
+insns_by_bytecode = {i.bytecode: i for i in insns}
 
 
 class Token(enum.IntEnum):
@@ -140,7 +194,7 @@ class Parser:
                 self.pos += 1
                 return (Token.PAREN, ")")
             case c if c in map(
-                lambda insn: insn.scheme_label,
+                lambda insn: insn.scheme,
                 filter(lambda insn: insn.arity == 2, insns),
             ):
                 self.pos += 1
@@ -155,7 +209,7 @@ class Parser:
                 string = self.source[self.pos : end]
                 self.pos = end
                 if string in map(
-                    lambda insn: insn.scheme_label,
+                    lambda insn: insn.scheme,
                     filter(lambda insn: insn.arity == 1, insns),
                 ):
                     return (Token.UNOP, string)
@@ -264,12 +318,12 @@ class Compiler:
             case [(Token.BINOP, op), arg1, arg2]:
                 yield from self.compile_expr(arg1)
                 yield from self.compile_expr(arg2)
-                yield (insns_by_scheme_label[op], None)
+                yield (insns_by_scheme[op], None)
             case [(Token.UNOP, op), arg1]:
                 yield from self.compile_expr(arg1)
-                yield (insns_by_scheme_label[op], None)
+                yield (insns_by_scheme[op], None)
             case [(Token.INTEGER, value)]:
-                yield (insns_by_bytecode_label["LOAD64"], value)
+                yield (insns_by_bytecode["LOAD64"], value)
             case []:
                 raise ValueError("No expression to compile.")
             case x:
@@ -277,9 +331,7 @@ class Compiler:
 
     # Collect all results of compile_expr and add a return onto the end
     def compile_function(self, expr):
-        return list(self.compile_expr(expr)) + [
-            (insns_by_bytecode_label["RETURN"], None)
-        ]
+        return list(self.compile_expr(expr)) + [(insns_by_bytecode["RETURN"], None)]
 
     # For now, this is identical to compile_function, but operates on the ast
     def compile(self):
