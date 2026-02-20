@@ -13,6 +13,7 @@ from collections.abc import Iterator
 # TODO: Add codegen tests
 # TODO: Write interpreter
 # TODO: Add interpreter tests
+# TODO: Redesign tokenizer and compiler to use Insns and their arity data. This should simplify the compiler function and make the parser more clear?
 
 WHITESPACE = " \t\n"
 

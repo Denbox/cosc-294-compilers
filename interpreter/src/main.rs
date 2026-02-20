@@ -57,30 +57,11 @@ impl Machine {
             match self.read_insn(self.pc)? {
                 Insn::LOAD64(i) => self.push(Insn::LOAD64(i)),
                 Insn::RETURN => self.push(Insn::RETURN),
-                Insn::BINOP(op) => {
+                Insn::ADD => {
                     // TODO: Match stack length >= 2 or raise machine error
                     let arg2 = self.pop();
                     let arg1 = self.pop();
-                    // TODO: Fill out with all other codegen functions and figure out a clean way to handle this
-                    // TODO: Match the operation as an Insn type, not string
-                    let value = match op.as_str() {
-                        // TODO: Put codegen into its own file somehow
-                        // TODO: Add check that arg1 and arg2 are both fixnum
-                        // TODO: This is more of a design question. Where should such checks be handled??
-                        "ADD" => codegen::add(arg1, arg2),
-                        _ => MachineError::InvalidOperation,
-                    };
-                    self.push(value);
-                }
-                Insn::UNOP(op) => {
-                    // TODO: Match stack length >= 1 or raise machine error
-                    let arg = self.pop();
-                    // TODO: Fill out with all other codegen functions and figure out a clean way to handle this
-                    let value = match op.as_str() {
-                        // TODO: Put codegen into its own file somehow
-                        "UNOP_EXAMPLE" => codegen_unop_example(arg),
-                        _ => MachineError::InvalidOperation,
-                    };
+                    let value = codegen::add(arg1, arg2);
                     self.push(value);
                 }
             }
@@ -106,6 +87,14 @@ fn main() -> Result<(), MachineError> {
     // Execute interpreter
     machine.interpret()?;
     Ok(())
+}
+
+pub fn add(x: Insn, y: Insn) -> Result<Insn, MachineError> {
+    if x == Insn::LOAD64(x_val) && y == Insn::LOAD64(y_val) {
+        Ok(Insn::LOAD64(x_val + y_val))
+    } else {
+        Err(MachineError::InvalidOperation)
+    }
 }
 
 #[cfg(test)]

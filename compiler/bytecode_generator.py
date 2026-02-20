@@ -11,34 +11,39 @@ def index_to_insn(index: int, arity: int) -> Insn:
 
 # This presumes that qword and insn are already matched
 # This is for rust generation
-# TODO: Fix pretty printing of integer values to be in hex representation
 def unbox_inner(insn: Insn) -> str:
     match insn.bytecode:
         case "LOAD64":
-            return f"Some(LOAD64(qword << {insn.shift}))"
+            return f"Some(Insn::LOAD64(qword >> {hex(insn.shift)}))"
         case _:
             return f"Some(Insn::{insn.bytecode})"
 
 
 def generate_rust_module(insn_list):
-    lines: list[str] = []
+    text: list[str] = []
     # Enum bytecode definition
-    lines.append("pub enum Insn {")
+    text.append("#[derive(Debug, Clone)]\n")
+    text.append("pub enum Insn {\n")
     for insn in insn_list:
-        lines.append(f"\t{insn.bytecode},")
-    lines.append("}")
-    lines.append("")
+        match insn.bytecode:
+            case "LOAD64":
+                text.append(f"\t{insn.bytecode}(u64),\n")
+            case _:
+                text.append(f"\t{insn.bytecode},\n")
+    text.append("}\n\n")
+
     # Unbox function definition
-    lines.append("pub fun unbox(qword: u64) -> Option<Insn> {")
-    for insn in insn_list:
-        lines.append(f"\t if qword & {insn.mask} == {insn.tag} {{")
-        lines.append("\t\t" + unbox_inner(insn))
-        lines.append("\t}")
-    lines.append("}")
-    return "\n".join(lines)
+    text.append("pub fn unbox(qword: u64) -> Option<Insn> {\n\t")
+    for index, insn in enumerate(insn_list):
+        text.append(
+            f"if qword & 0x{hex(insn.mask)[2:].zfill(8)} == 0x{hex(insn.tag)[2:].zfill(8)} {{\n"
+        )
+        text.append(f"\t\t{unbox_inner(insn)}\n")
+        text.append("\t} else ")
+    text.append("{\n\t\tNone\n\t}\n}")
+    return "".join(text)
 
 
 if __name__ == "__main__":
-    # with open("./interpreter/src/bytecode.rs", "w") as f:
-    #     f.write(generate_rust_module(insns))
-    print(generate_rust_module(insns))
+    with open("./interpreter/src/bytecode.rs", "w") as f:
+        f.write(generate_rust_module(insns))
