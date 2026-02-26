@@ -100,7 +100,7 @@ fn add(x: Insn, y: Insn) -> Result<Insn, MachineError> {
 }
 
 #[cfg(test)]
-mod tests {
+mod machine_tests {
     use super::*;
 
     #[test]
@@ -124,6 +124,19 @@ mod tests {
         };
         let value = machine.read_insn(2);
         assert!(matches!(value, Err(MachineError::InvalidAddress)));
+    }
+}
+
+#[cfg(test)]
+mod box_tests {
+    use super::*;
+
+    #[test]
+    fn unbox_load64() {
+        assert!(matches!(
+            bytecode::unbox(0x17),
+            Some(bytecode::Insn::LOAD64(5))
+        ));
     }
 }
 // TODO: Add unbox tests
