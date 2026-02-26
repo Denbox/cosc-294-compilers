@@ -31,9 +31,7 @@ class Insn:
     arity: int
 
     def box(self, value: Optional[int] = None) -> bytes:
-        return struct.pack(
-            "<Q", ((to_int(self, value) << self.shift) & self.mask) + self.tag
-        )
+        return struct.pack("<Q", ((value or 0) << self.shift) + self.tag)
 
 
 # Note: We assume all unaries begin with an alphabetical character in the tokenizer.
@@ -48,7 +46,7 @@ class Insn:
 # Formatter is off for this section for easier reading
 # The instructions are sorted by arity
 insns = [
-    Insn(bytecode="LOAD64", scheme=None, mask=0b11, tag=0b00, shift=2, arity=0),
+    Insn(bytecode="LOAD64", scheme=None, mask=0b11, tag=0b11, shift=2, arity=0),
     Insn(
         bytecode="RETURN",
         scheme=None,
@@ -140,21 +138,6 @@ insns = [
         bytecode="EQUAL", scheme="=", mask=0xFFFF0000, tag=0x00430000, shift=32, arity=2
     ),
 ]
-
-
-# value is defined for Insns like LOAD64, but not for most operations
-def to_int(insn, value: Optional[int]) -> int:
-    if insn.bytecode not in ["LOAD64"] and value is not None:
-        raise ValueError(
-            f"value argument is not supported for {insn.bytecode} Instruction."
-        )
-    # LOAD64 value is just the passed integer value
-    if insn.bytecode == "LOAD64":
-        if value is None:
-            raise ValueError("LOAD64 needs a value.")
-        return value
-    return 0
-
 
 insns_by_scheme = {i.scheme: i for i in insns if i.scheme is not None}
 insns_by_bytecode = {i.bytecode: i for i in insns}
@@ -519,11 +502,18 @@ class ParseTests(unittest.TestCase):
             self._parse(")")
 
 
-# TODO: Add box tests for other types including return, binops, unops, etc
+# TODO: Figure out how we can assert that there is a test for every type for boxing
+# TODO: Figure out how to convert test function names to lowercase
 class BoxTests(unittest.TestCase):
-    def test_box_fixnum(self):
-        pass
-        # self.assertEqual(ptr_types["fixnum"].box(5), struct.pack("<Q", 0b10111))
+    # Apart from fixnum, each Insn is boxed without value and can be tested simply
+    # Note: we do not strictly enforce boolean match of no-value Insn box.
+    # It's not a problem but would be cleaner if this were more strongly specified
+    def test_box_insns(self):
+        for insn in insns:
+            self.assertEqual(insn.box(), struct.pack("<Q", insn.tag))
+
+    def test_box_fixnum_zero(self):
+        self.assertEqual(insns_by_bytecode["LOAD64"].box(0), struct.pack("<Q", 0b11))
 
 
 def compile_program():
