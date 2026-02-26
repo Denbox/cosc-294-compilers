@@ -9,10 +9,8 @@ enum MachineError {
     InvalidAddress,
     InvalidOpcode,
     InvalidOperation,
-}
-
-enum MachineExitCode {
-    Success,
+    UnimplementedOpcode,
+    NoReturn,
 }
 
 impl fmt::Display for MachineError {
@@ -24,7 +22,7 @@ impl fmt::Display for MachineError {
 struct Machine {
     pc: u64, // 64 bits is far more than necessary but it's okay
     code: Vec<u64>,
-    stack: Vec<Insn>,
+    stack: Vec<bytecode::Insn>,
 }
 
 impl Machine {
@@ -36,42 +34,45 @@ impl Machine {
         }
     }
 
-    fn push(&mut self, insn: Insn) {
+    fn push(&mut self, insn: bytecode::Insn) {
         self.stack.push(insn);
     }
 
-    fn pop(&mut self) -> Result<Insn, MachineError> {
+    fn pop(&mut self) -> Result<bytecode::Insn, MachineError> {
         match self.stack.pop() {
             Some(insn) => Ok(insn),
             None => Err(MachineError::EmptyStackPop),
         }
     }
 
-    fn read_insn(&mut self, index: u64) -> Result<Insn, MachineError> {
+    fn read_insn(&mut self, index: u64) -> Result<bytecode::Insn, MachineError> {
         match self.code.get(index as usize) {
             Some(bits) => bytecode::unbox(*bits).ok_or(MachineError::InvalidOpcode),
             None => Err(MachineError::InvalidAddress),
         }
     }
 
-    fn interpret(&mut self) -> Result<MachineExitCode, MachineError> {
+    fn interpret(&mut self) -> Result<bytecode::Insn, MachineError> {
         while self.pc < self.code.len() as u64 {
             // TODO: Make sure we update pc after reading an instruction
             match self.read_insn(self.pc)? {
-                Insn::LOAD64(i) => self.push(Insn::LOAD64(i)),
-                Insn::RETURN => self.push(Insn::RETURN),
-                Insn::ADD => {
+                bytecode::Insn::LOAD64(_) => return Err(MachineError::InvalidOperation),
+                bytecode::Insn::RETURN => {
+                    let arg = self.pop()?;
+                    return Ok(arg);
+                }
+                bytecode::Insn::ADD => {
                     // TODO: Match stack length >= 2 or raise machine error
                     let arg2 = self.pop()?;
                     let arg1 = self.pop()?;
                     let value = add(arg1, arg2)?;
                     self.push(value);
                 }
-                _ => {}
+                _ => return Err(MachineError::UnimplementedOpcode),
             }
             self.pc += 1;
         }
-        Ok(MachineExitCode::Success)
+        Err(MachineError::NoReturn)
     }
 }
 
@@ -88,7 +89,8 @@ fn main() -> Result<(), MachineError> {
     // Note: These following values are invalid, just for testing
     let code = vec![0u64, 1u64];
     let mut machine = Machine::new(code);
-    machine.interpret()?;
+    let result = machine.interpret()?;
+    println!("{result:?}");
     Ok(())
 }
 
@@ -100,7 +102,7 @@ fn add(x: Insn, y: Insn) -> Result<Insn, MachineError> {
 }
 
 #[cfg(test)]
-mod machine_tests {
+mod interpreter_tests {
     use super::*;
 
     #[test]
@@ -125,6 +127,17 @@ mod machine_tests {
         let value = machine.read_insn(2);
         assert!(matches!(value, Err(MachineError::InvalidAddress)));
     }
+
+    // TODO: Flesh out this test to make sure it returns the result of the addition
+    // #[test]
+    // fn add_two_load64s() {
+    //     let mut machine = Machine {
+    //         pc: 0,
+    //         // code: vec![bytecode::box(bytecode::Insn::ADD)],
+    //         code: vec![],
+    //         stack: vec![],
+    //     };
+    // }
 }
 
 #[cfg(test)]
