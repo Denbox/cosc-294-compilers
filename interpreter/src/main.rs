@@ -11,6 +11,10 @@ enum MachineError {
     InvalidOperation,
 }
 
+enum MachineExitCode {
+    Success,
+}
+
 impl fmt::Display for MachineError {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(f, "invalid first item to double")
@@ -50,7 +54,7 @@ impl Machine {
         }
     }
 
-    fn interpret(&mut self) -> Result<u64, MachineError> {
+    fn interpret(&mut self) -> Result<MachineExitCode, MachineError> {
         while self.pc < self.code.len() as u64 {
             // TODO: Make sure we update pc after reading an instruction
             match self.read_insn(self.pc)? {
@@ -58,14 +62,16 @@ impl Machine {
                 Insn::RETURN => self.push(Insn::RETURN),
                 Insn::ADD => {
                     // TODO: Match stack length >= 2 or raise machine error
-                    let arg2 = self.pop();
-                    let arg1 = self.pop();
-                    let value = codegen::add(arg1, arg2);
+                    let arg2 = self.pop()?;
+                    let arg1 = self.pop()?;
+                    let value = add(arg1, arg2)?;
                     self.push(value);
                 }
+                _ => {}
             }
+            self.pc += 1;
         }
-        Ok(self.pc)
+        Ok(MachineExitCode::Success)
     }
 }
 
@@ -82,17 +88,14 @@ fn main() -> Result<(), MachineError> {
     // Note: These following values are invalid, just for testing
     let code = vec![0u64, 1u64];
     let mut machine = Machine::new(code);
-    //
-    // Execute interpreter
     machine.interpret()?;
     Ok(())
 }
 
-pub fn add(x: Insn, y: Insn) -> Result<Insn, MachineError> {
-    if x == Insn::LOAD64(x_val) && y == Insn::LOAD64(y_val) {
-        Ok(Insn::LOAD64(x_val + y_val))
-    } else {
-        Err(MachineError::InvalidOperation)
+fn add(x: Insn, y: Insn) -> Result<Insn, MachineError> {
+    match (x, y) {
+        (Insn::LOAD64(x_val), Insn::LOAD64(y_val)) => Ok(Insn::LOAD64(x_val + y_val)),
+        _ => Err(MachineError::InvalidOperation),
     }
 }
 
@@ -122,8 +125,6 @@ mod tests {
         let value = machine.read_insn(2);
         assert!(matches!(value, Err(MachineError::InvalidAddress)));
     }
-
-    // TODO: Add more machine error failure modes
 }
 // TODO: Add unbox tests
 // TODO: Add interpreter tests

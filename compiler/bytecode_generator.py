@@ -22,7 +22,7 @@ def unbox_inner(insn: Insn) -> str:
 def generate_rust_module(insn_list):
     text: list[str] = []
     # Enum bytecode definition
-    text.append("#[derive(Debug, Clone)]\n")
+    text.append("#[derive(Debug, Clone, PartialEq)]\n")
     text.append("pub enum Insn {\n")
     for insn in insn_list:
         match insn.bytecode:
