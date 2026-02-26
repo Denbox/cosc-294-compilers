@@ -20,7 +20,7 @@ pub enum Insn {
 
 pub fn box_insn(insn: Insn) -> u64 {
 	match insn {
-		Insn::LOAD64(value) => value << 0x2,
+		Insn::LOAD64(value) => (value << 0x2) + 0x3,
 		Insn::RETURN        => 0x00010000,
 		Insn::ADD1          => 0x00020000,
 		Insn::SUB1          => 0x00120000,

@@ -104,7 +104,7 @@ mod machine_tests {
     use super::*;
 
     #[test]
-    fn test_empty_pop_fails() {
+    fn empty_pop_fails() {
         let mut machine = Machine {
             pc: 0,
             code: vec![],
@@ -115,7 +115,7 @@ mod machine_tests {
     }
 
     #[test]
-    fn test_read_end_of_code() {
+    fn read_end_of_code() {
         let mut machine = Machine {
             pc: 0,
             // TODO: Use real opcodes
@@ -132,12 +132,37 @@ mod box_tests {
     use super::*;
 
     #[test]
-    fn unbox_load64() {
+    fn unbox_bytecode_to_load64() {
         assert!(matches!(
             bytecode::unbox(0x17),
             Some(bytecode::Insn::LOAD64(5))
         ));
     }
+
+    #[test]
+    fn box_load64_to_bytecode() {
+        assert!(matches!(bytecode::box_insn(bytecode::Insn::LOAD64(16)), 67));
+    }
+
+    #[test]
+    fn return_round_trip() {
+        assert!(matches!(
+            bytecode::unbox(bytecode::box_insn(bytecode::Insn::RETURN)),
+            Some(Insn::RETURN)
+        ))
+    }
+
+    // TODO: Figure out how to expand this into multiple tests
+    // TODO: Fix this and figure out how to iterate over an enum
+    // #[test]
+    // fn unbox_roundtrips() {
+    //     for insn in bytecode::Insn {
+    //         match insn {
+    //             bytecode::Insn(_) => continue,
+    //             _ => assert!(matches!(bytecode::unbox(bytecode::box_insn(insn)), insn)),
+    //         }
+    //     }
+    // }
 }
 // TODO: Add unbox tests
 // TODO: Add interpreter tests

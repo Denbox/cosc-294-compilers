@@ -27,7 +27,7 @@ def box_inner(insn: Insn) -> str:
         case "LOAD64":
             lhs_no_space = "Insn::LOAD64(value)"
             lhs = f"{lhs_no_space}{' ' * (longest - len(lhs_no_space))} => "
-            rhs = f"value << {hex(insn.shift)}"
+            rhs = f"(value << {hex(insn.shift)}) + {hex(insn.tag)}"
         case _:
             # return f"Insn::{insn.bytecode} =>
             lhs_no_space = f"Insn::{insn.bytecode}"
