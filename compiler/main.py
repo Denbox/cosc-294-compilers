@@ -34,6 +34,9 @@ class Insn:
     def box(self, value: Optional[int] = None) -> bytes:
         return struct.pack("<Q", ((value or 0) << self.shift) + self.tag)
 
+    def __repr__(self):
+        return f"Insn:{self.bytecode}"
+
 
 # Note: We assume all unaries begin with an alphabetical character in the tokenizer.
 # If this assumption ever add unaries that do not fit this pattern, we will need to
@@ -294,33 +297,40 @@ def scheme_parse(source: str) -> object:
 class Compiler:
     def __init__(self, ast):
         self.ast = ast
+        self.insns = []
         self.code = []
         self.max_locals_count = 0
 
     # Each compiled output is tuple containing (Insn, value)
-    def compile_expr(self, expr):
+    def traverse_expr(self, expr):
         match expr:
             case [(Token.BINOP, op), arg1, arg2]:
-                yield from self.compile_expr(arg1)
-                yield from self.compile_expr(arg2)
+                yield from self.traverse_expr(arg1)
+                yield from self.traverse_expr(arg2)
                 yield (insns_by_scheme[op], None)
             case [(Token.UNOP, op), arg1]:
-                yield from self.compile_expr(arg1)
+                yield from self.traverse_expr(arg1)
                 yield (insns_by_scheme[op], None)
-            case [(Token.INTEGER, value)]:
+            case (Token.INTEGER, value):
                 yield (insns_by_bytecode["LOAD64"], value)
             case []:
-                raise ValueError("No expression to compile.")
+                raise ValueError("No expression to traverse.")
             case x:
                 raise ValueError(f"Unexpected expression for compilation: {x}")
 
-    # Collect all results of compile_expr and add a return onto the end
-    def compile_function(self, expr):
-        return list(self.compile_expr(expr)) + [(insns_by_bytecode["RETURN"], None)]
+    # Collect all results of traverse_expr and add a return onto the end
+    def traverse_function(self, expr):
+        return list(self.traverse_expr(expr)) + [(insns_by_bytecode["RETURN"], None)]
 
-    # For now, this is identical to compile_function, but operates on the ast
+    # For now, this is identical to traverse_function, but operates on the ast
+    def traverse(self):
+        self.insns = self.traverse_function(self.ast)
+
     def compile(self):
-        self.code = self.compile_function(self.ast)
+        self.code = []
+        self.traverse()
+        for insn, value in self.insns:
+            self.code.append(insn.box(value))
 
     # TODO: Improve the representation of bytecode to each be 64 bits
     # This means replacing all the opcodes with some shift like in the scheme paper
@@ -503,6 +513,37 @@ class ParseTests(unittest.TestCase):
             self._parse(")")
 
 
+class TraversalTests(unittest.TestCase):
+    def _traverse(self, source: str) -> object:
+        p = Parser(source)
+        p.tokenize()
+        p.parse()
+        c = Compiler(p.ast)
+        c.traverse()
+        return c.insns
+
+    def test_add_two_integers(self):
+        self.assertEqual(
+            self._traverse("(+ 1 2)"),
+            [
+                (insns_by_bytecode["LOAD64"], 1),
+                (insns_by_bytecode["LOAD64"], 2),
+                (insns_by_bytecode["ADD"], None),
+                (insns_by_bytecode["RETURN"], None),
+            ],
+        )
+
+
+class CompilerTests(unittest.TestCase):
+    def _compile(self, source: str) -> object:
+        p = Parser(source)
+        p.tokenize()
+        p.parse()
+        c = Compiler(p.ast)
+        c.compile()
+        return c.code
+
+
 # TODO: Figure out how we can assert that there is a test for every type for boxing
 # TODO: Figure out how to convert test function names to lowercase
 class BoxTests(unittest.TestCase):
@@ -521,7 +562,7 @@ def compile_program():
     source = sys.stdin.read()
     program = scheme_parse(source)
     compiler = Compiler(program)
-    compiler.compile_function(program)
+    compiler.compile()
     compiler.write_to_stream(sys.stdout)
 
 
