@@ -63,8 +63,8 @@ impl Machine {
                 }
                 bytecode::Insn::ADD => {
                     // TODO: Match stack length >= 2 or raise machine error
-                    let arg2 = self.pop()?;
                     let arg1 = self.pop()?;
+                    let arg2 = self.pop()?;
                     let value = add(arg1, arg2)?;
                     self.push(value);
                 }
