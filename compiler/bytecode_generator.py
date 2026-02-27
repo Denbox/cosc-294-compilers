@@ -55,7 +55,7 @@ def generate_rust_module(insn_list):
     for insn in insn_list:
         text.append(f"\t\t{box_inner(insn)},\n")
     text.append("\t}\n")
-    text.append("}\n")
+    text.append("}\n\n")
 
     # Unbox function definition
     text.append("pub fn unbox(qword: u64) -> Option<Insn> {\n\t")

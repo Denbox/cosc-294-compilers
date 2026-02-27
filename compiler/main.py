@@ -233,7 +233,9 @@ class Parser:
             case (Token.PAREN, "("):
                 closing = (Token.PAREN, ")")
                 if len(expr) == 0:
-                    raise ValueError("Closing parenthesis expected.")
+                    raise ValueError(
+                        "Closing parenthesis expected but there are no more tokens.."
+                    )
                 if expr[0] == closing:
                     expr.pop(0)
                 else:
@@ -433,6 +435,17 @@ class TokenizationTests(unittest.TestCase):
             ],
         )
 
+    def test_tokenize_add1(self):
+        self.assertEqual(
+            self._tokenize("(ADD1 6)"),
+            [
+                (Token.PAREN, "("),
+                (Token.STRING, "ADD1"),
+                (Token.INTEGER, 6),
+                (Token.PAREN, ")"),
+            ],
+        )
+
 
 class ParseTests(unittest.TestCase):
     def _parse(self, source: str) -> object:
@@ -461,6 +474,16 @@ class ParseTests(unittest.TestCase):
     def test_parse_unop(self):
         self.assertEqual(
             self._parse("(not 1)"), [(Token.UNOP, "not"), (Token.INTEGER, 1)]
+        )
+
+    def test_parse_add1(self):
+        self.assertEqual(
+            self._parse("(add1 6)"), [(Token.UNOP, "add1"), (Token.INTEGER, 6)]
+        )
+
+    def test_parse_zero(self):
+        self.assertEqual(
+            self._parse("(zero? 6)"), [(Token.UNOP, "zero?"), (Token.INTEGER, 6)]
         )
 
     def test_nested_unops(self):
@@ -529,6 +552,16 @@ class TraversalTests(unittest.TestCase):
                 (insns_by_bytecode["LOAD64"], 1),
                 (insns_by_bytecode["LOAD64"], 2),
                 (insns_by_bytecode["ADD"], None),
+                (insns_by_bytecode["RETURN"], None),
+            ],
+        )
+
+    def test_add1(self):
+        self.assertEqual(
+            self._traverse("(add1 6)"),
+            [
+                (insns_by_bytecode["LOAD64"], 6),
+                (insns_by_bytecode["ADD1"], None),
                 (insns_by_bytecode["RETURN"], None),
             ],
         )

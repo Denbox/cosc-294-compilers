@@ -38,6 +38,7 @@ pub fn box_insn(insn: Insn) -> u64 {
 		Insn::EQUAL         => 0x00430000,
 	}
 }
+
 pub fn unbox(qword: u64) -> Option<Insn> {
 	if qword & 0x00000003 == 0x00000003 {Some(Insn::LOAD64(qword >> 0x2))}
 	else if qword & 0xffff0000 == 0x00020000 {Some(Insn::RETURN)}
