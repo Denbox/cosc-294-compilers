@@ -49,6 +49,7 @@ class Insn:
 
 # Formatter is off for this section for easier reading
 # The instructions are sorted by arity
+# TODO: Add opcodes for booleans and characters
 insns = [
     Insn(bytecode="LOAD64", scheme=None, mask=0b11, tag=0b11, shift=2, arity=0),
     Insn(
@@ -147,6 +148,7 @@ insns_by_scheme = {i.scheme: i for i in insns if i.scheme is not None}
 insns_by_bytecode = {i.bytecode: i for i in insns}
 
 
+# -------- TOKENIZER DATA STRUCTURES --------
 class Token(enum.IntEnum):
     NOP = enum.auto()  # No operation
     UNOP = enum.auto()  # Unary operation
@@ -155,6 +157,61 @@ class Token(enum.IntEnum):
     PAREN = enum.auto()  # Paren (opening or closing)
     INTEGER = enum.auto()  # Integer value
     STRING = enum.auto()  # String value
+
+
+# -------- PARSER DATA STRUCTURES --------
+# The tokenizer ingests tokens and emits SchemeFunctions and SchemePrimitives
+# The compiler ingests SchemeFunctions and SchemePrimitives and emits opcodes.
+# The parsed scheme abstract syntax tree is composed of functions as the first arguments of an S-expression,
+# and the primitives as the type for each argument in the S-expression.
+@dataclass
+class SchemeFunctionMeta:
+    label: str
+    arity: int
+
+
+# fmt: off
+class SchemeFunction(enum.Enum):
+    ADD       = SchemeFunctionMeta("+", 2)
+    MULT      = SchemeFunctionMeta("*", 2)
+    SUB       = SchemeFunctionMeta("-", 2)
+    LESS      = SchemeFunctionMeta("<", 2)
+    EQUAL     = SchemeFunctionMeta("=", 2)
+    ADD1      = SchemeFunctionMeta("add1", 1)
+    SUB1      = SchemeFunctionMeta("sub1", 1)
+    INTTOCHAR = SchemeFunctionMeta("integer->char", 1)
+    CHARTOINT = SchemeFunctionMeta("char->integer", 1)
+    NULLPRED  = SchemeFunctionMeta("null?", 1)
+    ZEROPRED  = SchemeFunctionMeta("zero?", 1)
+    NOT       = SchemeFunctionMeta("not", 1)
+    INTPRED   = SchemeFunctionMeta("integer?", 1)
+    BOOLPRED  = SchemeFunctionMeta("boolean?", 1)
+# fmt: on
+
+
+# Valid primitive types are ["BOOLEAN", "INTEGER", "CHAR"]
+@dataclass
+class SchemePrimitive:
+    prim_type: str
+    value: int
+
+
+# -------- COMPILER DATA STRUCTURES --------
+# TODO: Redesign interpreter to use opcodes
+# TODO: Redesign bytecode generation to use opcodes rather than Insns
+# The Opcode class hodls all valid interpreter instructions
+class Opcode:
+    pass
+
+
+def get_scheme_func(label: str, arity: int):
+    try:
+        func = SchemeFunction(SchemeFunctionMeta(label, arity))
+    except ValueError:
+        raise ValueError(
+            f"Invalud unary operation {label}. There is no corresponding SchemeFunction object of arity {arity}."
+        )
+    return func
 
 
 # NOTE: Scheme allows for all sorts of weird variable names. We require that they start with alphanumeric
@@ -202,7 +259,10 @@ class Parser:
                 ):
                     return (Token.UNOP, string)
                 else:
-                    return (Token.STRING, string)
+                    raise ValueError(
+                        f"String types are not supported and {string} was not identified as an operator."
+                    )
+                    # return (Token.STRING, string)
             case "":
                 raise EOFError(
                     f"Unexpected end of input.\nCurrent tokenization: {self.tokens}\nSource: {self.source}\nCurrent position: {self.pos}"
@@ -219,16 +279,22 @@ class Parser:
                 self.tokens.append(token_tuple)
         return self.tokens
 
-    def parse_expr(self, expr: List[tuple[Token, object]]) -> Iterator:
+    # TODO: Support booleans
+    # TODO: Support chars
+    # TODO: Add boolean tests
+    # TODO: Add char tests
+    def parse_expr(self, expr: List[tuple[Token, str]]) -> Iterator:
         if expr == []:
             return ""
         match expr.pop(0):
-            case (Token.INTEGER, _) as i:
-                yield i
-            case (Token.STRING, _) as s:
-                yield s
-            case (Token.UNOP, _) as u:
-                yield u
+            case (Token.INTEGER, value):
+                yield SchemePrimitive("INTEGER", int(value))
+            case (Token.UNOP, op):
+                yield get_scheme_func(op, 1)
+                yield from self.parse_expr(expr)
+            case (Token.BINOP, op):
+                yield get_scheme_func(op, 2)
+                yield from self.parse_expr(expr)
                 yield from self.parse_expr(expr)
             case (Token.PAREN, "("):
                 closing = (Token.PAREN, ")")
@@ -248,10 +314,6 @@ class Parser:
                         raise ValueError("Closing parenthesis expected.")
                     expr.pop(0)  # We need to remove the closing parenthesis
                     yield result
-            case (Token.BINOP, _) as b:
-                yield b
-                yield from self.parse_expr(expr)
-                yield from self.parse_expr(expr)
             case tok:
                 raise ValueError(f"Unexpected token: '{tok}'")
 
@@ -306,23 +368,31 @@ class Compiler:
     # Each compiled output is tuple containing (Insn, value)
     def traverse_expr(self, expr):
         match expr:
-            case [(Token.BINOP, op), arg1, arg2]:
-                yield from self.traverse_expr(arg1)
-                yield from self.traverse_expr(arg2)
-                yield (insns_by_scheme[op], None)
-            case [(Token.UNOP, op), arg1]:
-                yield from self.traverse_expr(arg1)
-                yield (insns_by_scheme[op], None)
-            case (Token.INTEGER, value):
-                yield (insns_by_bytecode["LOAD64"], value)
+            case [SchemePrimitive(prim_type=_, value=_) as prim, *_]:
+                yield prim
+            case [SchemeFunction() as func, *rest]:
+                arity = func.value.arity
+                label = func.value.label
+                if arity is None:
+                    raise NotImplementedError("Function {func} has variadic arity.")
+                elif arity > len(rest):
+                    raise ValueError(
+                        f"Function {label} expects {arity} arguments, but only {len(rest)} were provided."
+                    )
+                # Handle each argument
+                for i in range(arity):
+                    yield from self.traverse_expr(rest[i:])
+                yield func
             case []:
                 raise ValueError("No expression to traverse.")
             case x:
-                raise ValueError(f"Unexpected expression for compilation: {x}")
+                raise ValueError(
+                    f"Unexpected expression for reordering before compilation: {x}"
+                )
 
     # Collect all results of traverse_expr and add a return onto the end
     def traverse_function(self, expr):
-        return list(self.traverse_expr(expr)) + [(insns_by_bytecode["RETURN"], None)]
+        return list(self.traverse_expr(expr))
 
     # For now, this is identical to traverse_function, but operates on the ast
     def traverse(self):
@@ -361,8 +431,8 @@ class TokenizationTests(unittest.TestCase):
     def test_tokenize_one_space(self):
         self.assertEqual(self._tokenize_one(" "), (Token.NOP, " "))
 
-    def test_tokenize_one_str(self):
-        self.assertEqual(self._tokenize_one("asdf"), (Token.STRING, "asdf"))
+    # def test_tokenize_one_str(self):
+    #     self.assertEqual(self._tokenize_one("asdf"), (Token.STRING, "asdf"))
 
     def test_tokenize_one_add1(self):
         self.assertEqual(self._tokenize_one("add1"), (Token.UNOP, "add1"))
@@ -435,16 +505,18 @@ class TokenizationTests(unittest.TestCase):
             ],
         )
 
-    def test_tokenize_add1(self):
-        self.assertEqual(
-            self._tokenize("(ADD1 6)"),
-            [
-                (Token.PAREN, "("),
-                (Token.STRING, "ADD1"),
-                (Token.INTEGER, 6),
-                (Token.PAREN, ")"),
-            ],
-        )
+    # This dummy test handles a typo. The instruction should be add1 for a unary function, but ADD1 is just a string.
+    # We should probably give a warning for something like this
+    # def test_tokenize_add1(self):
+    #     self.assertEqual(
+    #         self._tokenize("(ADD1 6)"),
+    #         [
+    #             (Token.PAREN, "("),
+    #             (Token.STRING, "ADD1"),
+    #             (Token.INTEGER, 6),
+    #             (Token.PAREN, ")"),
+    #         ],
+    #     )
 
 
 class ParseTests(unittest.TestCase):
@@ -458,46 +530,59 @@ class ParseTests(unittest.TestCase):
         self.assertEqual(self._parse(""), "")
 
     def test_parse_fixnum(self):
-        self.assertEqual(self._parse("42"), (Token.INTEGER, 42))
+        self.assertEqual(self._parse("42"), SchemePrimitive("INTEGER", 42))
 
     def test_parse_fixnum_with_whitespace(self):
-        self.assertEqual(self._parse("     43"), (Token.INTEGER, 43))
+        self.assertEqual(self._parse("     43"), SchemePrimitive("INTEGER", 43))
 
     def test_parse_fixnum_with_newline_whitespace(self):
-        self.assertEqual(self._parse("\n\n5"), (Token.INTEGER, 5))
+        self.assertEqual(self._parse("\n\n5"), SchemePrimitive("INTEGER", 5))
 
     def test_parse_fixnum_big_number(self):
         self.assertEqual(
-            self._parse(" 4325245623542352 "), (Token.INTEGER, 4325245623542352)
+            self._parse(" 4325245623542352 "),
+            SchemePrimitive("INTEGER", 4325245623542352),
         )
 
     def test_parse_unop(self):
         self.assertEqual(
-            self._parse("(not 1)"), [(Token.UNOP, "not"), (Token.INTEGER, 1)]
+            self._parse("(not 1)"),
+            [
+                SchemeFunction.NOT,
+                SchemePrimitive("INTEGER", 1),
+            ],
         )
 
     def test_parse_add1(self):
         self.assertEqual(
-            self._parse("(add1 6)"), [(Token.UNOP, "add1"), (Token.INTEGER, 6)]
+            self._parse("(add1 6)"),
+            [
+                SchemeFunction.ADD1,
+                SchemePrimitive("INTEGER", 6),
+            ],
         )
 
     def test_parse_zero(self):
         self.assertEqual(
-            self._parse("(zero? 6)"), [(Token.UNOP, "zero?"), (Token.INTEGER, 6)]
+            self._parse("(zero? 6)"),
+            [
+                SchemeFunction.ZEROPRED,
+                SchemePrimitive("INTEGER", 6),
+            ],
         )
 
     def test_nested_unops(self):
         self.assertEqual(
             self._parse("(add1 (sub1 (integer->char (char->integer (null? 0)))))"),
             [
-                (Token.UNOP, "add1"),
+                SchemeFunction.ADD1,
                 [
-                    (Token.UNOP, "sub1"),
+                    SchemeFunction.SUB1,
                     [
-                        (Token.UNOP, "integer->char"),
+                        SchemeFunction.INTTOCHAR,
                         [
-                            (Token.UNOP, "char->integer"),
-                            [(Token.UNOP, "null?"), (Token.INTEGER, 0)],
+                            SchemeFunction.CHARTOINT,
+                            [SchemeFunction.NULLPRED, SchemePrimitive("INTEGER", 0)],
                         ],
                     ],
                 ],
@@ -507,7 +592,11 @@ class ParseTests(unittest.TestCase):
     def test_parse_binop(self):
         self.assertEqual(
             self._parse("(* 5 6)"),
-            [(Token.BINOP, "*"), (Token.INTEGER, 5), (Token.INTEGER, 6)],
+            [
+                SchemeFunction.MULT,
+                SchemePrimitive("INTEGER", 5),
+                SchemePrimitive("INTEGER", 6),
+            ],
         )
 
     def test_parse_binop_too_many_args(self):
@@ -518,14 +607,18 @@ class ParseTests(unittest.TestCase):
         self.assertEqual(
             self._parse("(+ 1 (* ((2)) 3))"),
             [
-                (Token.BINOP, "+"),
-                (Token.INTEGER, 1),
-                [(Token.BINOP, "*"), [[(Token.INTEGER, 2)]], (Token.INTEGER, 3)],
+                SchemeFunction.ADD,
+                SchemePrimitive("INTEGER", 1),
+                [
+                    SchemeFunction.MULT,
+                    [[SchemePrimitive("INTEGER", 2)]],
+                    SchemePrimitive("INTEGER", 3),
+                ],
             ],
         )
 
     def test_parse_balanced_parens_simple(self):
-        self.assertEqual(self._parse("( 5 )"), [(Token.INTEGER, 5)])
+        self.assertEqual(self._parse("( 5 )"), [SchemePrimitive("INTEGER", 5)])
 
     def test_parse_open_parens(self):
         with self.assertRaises(ValueError):
@@ -549,10 +642,9 @@ class TraversalTests(unittest.TestCase):
         self.assertEqual(
             self._traverse("(+ 1 2)"),
             [
-                (insns_by_bytecode["LOAD64"], 1),
-                (insns_by_bytecode["LOAD64"], 2),
-                (insns_by_bytecode["ADD"], None),
-                (insns_by_bytecode["RETURN"], None),
+                SchemePrimitive("INTEGER", 1),
+                SchemePrimitive("INTEGER", 2),
+                SchemeFunction.ADD,
             ],
         )
 
@@ -560,9 +652,8 @@ class TraversalTests(unittest.TestCase):
         self.assertEqual(
             self._traverse("(add1 6)"),
             [
-                (insns_by_bytecode["LOAD64"], 6),
-                (insns_by_bytecode["ADD1"], None),
-                (insns_by_bytecode["RETURN"], None),
+                SchemePrimitive("INTEGER", 6),
+                SchemeFunction.ADD1,
             ],
         )
 
@@ -575,6 +666,9 @@ class CompilerTests(unittest.TestCase):
         c = Compiler(p.ast)
         c.compile()
         return c.code
+
+
+# TODO: Add compiler test to make sure a return is added to the end
 
 
 # TODO: Figure out how we can assert that there is a test for every type for boxing

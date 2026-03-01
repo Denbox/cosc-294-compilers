@@ -54,9 +54,8 @@ impl Machine {
 
     fn interpret(&mut self) -> Result<bytecode::Insn, MachineError> {
         while self.pc < self.code.len() as u64 {
-            // TODO: Make sure we update pc after reading an instruction
             match self.read_insn(self.pc)? {
-                bytecode::Insn::LOAD64(_) => return Err(MachineError::InvalidOperation),
+                bytecode::Insn::LOAD64(x) => self.push(bytecode::Insn::LOAD64(x)),
                 bytecode::Insn::RETURN => {
                     let arg = self.pop()?;
                     return Ok(arg);
@@ -66,6 +65,16 @@ impl Machine {
                     let arg1 = self.pop()?;
                     let arg2 = self.pop()?;
                     let value = add(arg1, arg2)?;
+                    self.push(value);
+                }
+                bytecode::Insn::ADD1 => {
+                    let arg = self.pop()?;
+                    let value = add1(arg)?;
+                    self.push(value);
+                }
+                bytecode::Insn::SUB1 => {
+                    let arg = self.pop()?;
+                    let value = sub1(arg)?;
                     self.push(value);
                 }
                 _ => return Err(MachineError::UnimplementedOpcode),
@@ -101,6 +110,23 @@ fn add(x: Insn, y: Insn) -> Result<Insn, MachineError> {
     }
 }
 
+// TODO: Handle overflows
+fn add1(x: Insn) -> Result<Insn, MachineError> {
+    match x {
+        Insn::LOAD64(val) => Ok(Insn::LOAD64(val + 1)),
+        _ => Err(MachineError::InvalidOperation),
+    }
+}
+
+// TODO: Handle underflows
+fn sub1(x: Insn) -> Result<Insn, MachineError> {
+    match x {
+        Insn::LOAD64(val) => Ok(Insn::LOAD64(val - 1)),
+        _ => Err(MachineError::InvalidOperation),
+    }
+}
+
+// TODO: Choose better opcodes that the compiler generates. A lot of the codegen happens on the compiler side rather than the interpreter side. This is a redesign of sorts
 #[cfg(test)]
 mod interpreter_tests {
     use super::*;
@@ -128,16 +154,51 @@ mod interpreter_tests {
         assert!(matches!(value, Err(MachineError::InvalidAddress)));
     }
 
-    // TODO: Flesh out this test to make sure it returns the result of the addition
-    // #[test]
-    // fn add_two_load64s() {
-    //     let mut machine = Machine {
-    //         pc: 0,
-    //         // code: vec![bytecode::box(bytecode::Insn::ADD)],
-    //         code: vec![],
-    //         stack: vec![],
-    //     };
-    // }
+    #[test]
+    fn add_two_load64s() {
+        let mut machine = Machine {
+            pc: 0,
+            code: vec![
+                bytecode::box_insn(bytecode::Insn::LOAD64(1)),
+                bytecode::box_insn(bytecode::Insn::LOAD64(2)),
+                bytecode::box_insn(bytecode::Insn::ADD),
+                bytecode::box_insn(bytecode::Insn::RETURN),
+            ],
+            stack: vec![],
+        };
+        let output = machine.interpret();
+        assert!(matches!(output, Ok(bytecode::Insn::LOAD64(3))));
+    }
+
+    #[test]
+    fn add1_load64() {
+        let mut machine = Machine {
+            pc: 0,
+            code: vec![
+                bytecode::box_insn(bytecode::Insn::LOAD64(1)),
+                bytecode::box_insn(bytecode::Insn::ADD1),
+                bytecode::box_insn(bytecode::Insn::RETURN),
+            ],
+            stack: vec![],
+        };
+        let output = machine.interpret();
+        assert!(matches!(output, Ok(bytecode::Insn::LOAD64(2))));
+    }
+
+    #[test]
+    fn sub1_load64() {
+        let mut machine = Machine {
+            pc: 0,
+            code: vec![
+                bytecode::box_insn(bytecode::Insn::LOAD64(12)),
+                bytecode::box_insn(bytecode::Insn::SUB1),
+                bytecode::box_insn(bytecode::Insn::RETURN),
+            ],
+            stack: vec![],
+        };
+        let output = machine.interpret();
+        assert!(matches!(output, Ok(bytecode::Insn::LOAD64(11))));
+    }
 }
 
 #[cfg(test)]
@@ -178,4 +239,3 @@ mod box_tests {
     // }
 }
 // TODO: Add unbox tests
-// TODO: Add interpreter tests
