@@ -3,7 +3,7 @@ import unittest
 import struct
 import sys
 from dataclasses import dataclass
-from typing import Tuple, List, Optional
+from typing import Tuple, List, Optional, assert_never
 from collections.abc import Iterator
 
 # TODO: Write DFS traversal for parser
@@ -197,11 +197,33 @@ class SchemePrimitive:
 
 
 # -------- COMPILER DATA STRUCTURES --------
+# The Opcode class hodls all valid interpreter instructions
+
+
+# TODO: Figure out how we're going to handle variadic arity here
+@dataclass
+class OpcodeMeta:
+    mask: int
+    tag: int
+    shift: int
+    arity: int
+
+
 # TODO: Redesign interpreter to use opcodes
 # TODO: Redesign bytecode generation to use opcodes rather than Insns
-# The Opcode class hodls all valid interpreter instructions
+# TODO: Remove insns and insns class
+# TODO: Add control flow instructions like jumps
+# TODO: Figure out if we want to augment our interpreter with flags of some kind (or some such control mechanism)
+# TODO: Clean up tagging system
+# TODO: Make sure bytecode generation for the interpreter works
+# TODO: Implement compilation for scheme functions
+# TODO: Add python comppiler tests
+# fmt: off
 class Opcode:
-    pass
+    ADD    = OpcodeMeta(mask=0xFFFF0000, tag=0x00120000, shift=32, arity=2)
+    RETURN = OpcodeMeta(mask=0xFFFF0000, tag=0x00020000, shift=32, arity=1)
+    LOAD64 = OpcodeMeta(mask=0x00000003, tag=0x00000003, shift= 2, arity=0)
+# fmt: on
 
 
 def get_scheme_func(label: str, arity: int):
@@ -397,6 +419,39 @@ class Compiler:
     # For now, this is identical to traverse_function, but operates on the ast
     def traverse(self):
         self.insns = self.traverse_function(self.ast)
+
+    def compile_scheme_function(self, scheme_func: SchemeFunction):
+        match scheme_func:
+            case SchemeFunction.ADD:
+                raise NotImplementedError
+            case SchemeFunction.MULT:
+                raise NotImplementedError
+            case SchemeFunction.SUB:
+                raise NotImplementedError
+            case SchemeFunction.LESS:
+                raise NotImplementedError
+            case SchemeFunction.EQUAL:
+                raise NotImplementedError
+            case SchemeFunction.ADD1:
+                raise NotImplementedError
+            case SchemeFunction.SUB1:
+                raise NotImplementedError
+            case SchemeFunction.INTTOCHAR:
+                raise NotImplementedError
+            case SchemeFunction.CHARTOINT:
+                raise NotImplementedError
+            case SchemeFunction.NULLPRED:
+                raise NotImplementedError
+            case SchemeFunction.ZEROPRED:
+                raise NotImplementedError
+            case SchemeFunction.NOT:
+                raise NotImplementedError
+            case SchemeFunction.INTPRED:
+                raise NotImplementedError
+            case SchemeFunction.BOOLPRED:
+                raise NotImplementedError
+            case _:
+                assert_never(scheme_func)
 
     def compile(self):
         self.code = []
