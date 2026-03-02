@@ -172,20 +172,20 @@ class SchemeFunctionMeta:
 
 # fmt: off
 class SchemeFunction(enum.Enum):
-    ADD       = SchemeFunctionMeta("+", 2)
-    MULT      = SchemeFunctionMeta("*", 2)
-    SUB       = SchemeFunctionMeta("-", 2)
-    LESS      = SchemeFunctionMeta("<", 2)
-    EQUAL     = SchemeFunctionMeta("=", 2)
-    ADD1      = SchemeFunctionMeta("add1", 1)
-    SUB1      = SchemeFunctionMeta("sub1", 1)
+    ADD       = SchemeFunctionMeta(            "+", 2)
+    MULT      = SchemeFunctionMeta(            "*", 2)
+    SUB       = SchemeFunctionMeta(            "-", 2)
+    LESS      = SchemeFunctionMeta(            "<", 2)
+    EQUAL     = SchemeFunctionMeta(            "=", 2)
+    ADD1      = SchemeFunctionMeta(         "add1", 1)
+    SUB1      = SchemeFunctionMeta(         "sub1", 1)
     INTTOCHAR = SchemeFunctionMeta("integer->char", 1)
     CHARTOINT = SchemeFunctionMeta("char->integer", 1)
-    NULLPRED  = SchemeFunctionMeta("null?", 1)
-    ZEROPRED  = SchemeFunctionMeta("zero?", 1)
-    NOT       = SchemeFunctionMeta("not", 1)
-    INTPRED   = SchemeFunctionMeta("integer?", 1)
-    BOOLPRED  = SchemeFunctionMeta("boolean?", 1)
+    NULLPRED  = SchemeFunctionMeta(        "null?", 1)
+    ZEROPRED  = SchemeFunctionMeta(        "zero?", 1)
+    NOT       = SchemeFunctionMeta(          "not", 1)
+    INTPRED   = SchemeFunctionMeta(     "integer?", 1)
+    BOOLPRED  = SchemeFunctionMeta(     "boolean?", 1)
 # fmt: on
 
 
@@ -220,8 +220,13 @@ class OpcodeMeta:
 # TODO: Add python comppiler tests
 # fmt: off
 class Opcode:
-    ADD    = OpcodeMeta(mask=0xFFFF0000, tag=0x00120000, shift=32, arity=2)
-    RETURN = OpcodeMeta(mask=0xFFFF0000, tag=0x00020000, shift=32, arity=1)
+    ADD    = OpcodeMeta(mask=0xFFFF0000, tag=0x00010000, shift=32, arity=2)
+    SUB    = OpcodeMeta(mask=0xFFFF0000, tag=0x00020000, shift=32, arity=2)
+    RETURN = OpcodeMeta(mask=0xFFFF0000, tag=0x00030000, shift=32, arity=1)
+    LESS   = OpcodeMeta(mask=0xFFFF0000, tag=0x00040000, shift=32, arity=2)
+    EQUAL  = OpcodeMeta(mask=0xFFFF0000, tag=0x00050000, shift=32, arity=2)
+    CJUMP  = OpcodeMeta(mask=0xFFFF0000, tag=0x00060000, shift=32, arity=1)
+    JUMP   = OpcodeMeta(mask=0xFFFF0000, tag=0x00070000, shift=32, arity=0)
     LOAD64 = OpcodeMeta(mask=0x00000003, tag=0x00000003, shift= 2, arity=0)
 # fmt: on
 
@@ -383,7 +388,6 @@ def scheme_parse(source: str) -> object:
 class Compiler:
     def __init__(self, ast):
         self.ast = ast
-        self.insns = []
         self.code = []
         self.max_locals_count = 0
 
@@ -415,10 +419,6 @@ class Compiler:
     # Collect all results of traverse_expr and add a return onto the end
     def traverse_function(self, expr):
         return list(self.traverse_expr(expr))
-
-    # For now, this is identical to traverse_function, but operates on the ast
-    def traverse(self):
-        self.insns = self.traverse_function(self.ast)
 
     def compile_scheme_function(self, scheme_func: SchemeFunction):
         match scheme_func:
@@ -455,9 +455,14 @@ class Compiler:
 
     def compile(self):
         self.code = []
-        self.traverse()
-        for insn, value in self.insns:
-            self.code.append(insn.box(value))
+        for lexeme in self.traverse_function(self.ast):
+            match lexeme:
+                case SchemeFunction() as function:
+                    self.code += self.compile_scheme_function(function)
+                case SchemePrimitive() as primitive:
+                    self.code.append(primitive)
+                case x:
+                    raise ValueError(f"Unknown scheme type {x}")
 
     # TODO: Improve the representation of bytecode to each be 64 bits
     # This means replacing all the opcodes with some shift like in the scheme paper
@@ -690,8 +695,7 @@ class TraversalTests(unittest.TestCase):
         p.tokenize()
         p.parse()
         c = Compiler(p.ast)
-        c.traverse()
-        return c.insns
+        return c.traverse_function(p.ast)
 
     def test_add_two_integers(self):
         self.assertEqual(
