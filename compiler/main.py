@@ -170,6 +170,12 @@ class SchemeFunctionMeta:
     arity: int
 
 
+class SPrim(enum.IntEnum):
+    INTEGER = enum.auto()
+    BOOLEAN = enum.auto()
+    CHAR = enum.auto()
+
+
 # fmt: off
 class SchemeFunction(enum.Enum):
     ADD       = SchemeFunctionMeta(            "+", 2)
@@ -192,7 +198,7 @@ class SchemeFunction(enum.Enum):
 # Valid primitive types are ["BOOLEAN", "INTEGER", "CHAR"]
 @dataclass
 class SchemePrimitive:
-    prim_type: str
+    prim_type: SPrim
     value: int
 
 
@@ -219,16 +225,23 @@ class OpcodeMeta:
 # TODO: Implement compilation for scheme functions
 # TODO: Add python comppiler tests
 # fmt: off
-class Opcode:
+class Op(enum.Enum):
     ADD    = OpcodeMeta(mask=0xFFFF0000, tag=0x00010000, shift=32, arity=2)
-    SUB    = OpcodeMeta(mask=0xFFFF0000, tag=0x00020000, shift=32, arity=2)
-    RETURN = OpcodeMeta(mask=0xFFFF0000, tag=0x00030000, shift=32, arity=1)
-    LESS   = OpcodeMeta(mask=0xFFFF0000, tag=0x00040000, shift=32, arity=2)
-    EQUAL  = OpcodeMeta(mask=0xFFFF0000, tag=0x00050000, shift=32, arity=2)
-    CJUMP  = OpcodeMeta(mask=0xFFFF0000, tag=0x00060000, shift=32, arity=1)
-    JUMP   = OpcodeMeta(mask=0xFFFF0000, tag=0x00070000, shift=32, arity=0)
+    MULT   = OpcodeMeta(mask=0xFFFF0000, tag=0x00020000, shift=32, arity=2)
+    SUB    = OpcodeMeta(mask=0xFFFF0000, tag=0x00030000, shift=32, arity=2)
+    RETURN = OpcodeMeta(mask=0xFFFF0000, tag=0x00040000, shift=32, arity=1)
+    LESS   = OpcodeMeta(mask=0xFFFF0000, tag=0x00050000, shift=32, arity=2)
+    EQUAL  = OpcodeMeta(mask=0xFFFF0000, tag=0x00060000, shift=32, arity=2)
+    CJUMP  = OpcodeMeta(mask=0xFFFF0000, tag=0x00070000, shift=32, arity=1)
+    JUMP   = OpcodeMeta(mask=0xFFFF0000, tag=0x00080000, shift=32, arity=0)
     LOAD64 = OpcodeMeta(mask=0x00000003, tag=0x00000003, shift= 2, arity=0)
 # fmt: on
+
+
+@dataclass
+class Opcode:
+    opcode_type: Op
+    value: Optional[int] = None
 
 
 def get_scheme_func(label: str, arity: int):
@@ -315,7 +328,7 @@ class Parser:
             return ""
         match expr.pop(0):
             case (Token.INTEGER, value):
-                yield SchemePrimitive("INTEGER", int(value))
+                yield SchemePrimitive(SPrim.INTEGER, int(value))
             case (Token.UNOP, op):
                 yield get_scheme_func(op, 1)
                 yield from self.parse_expr(expr)
@@ -423,19 +436,19 @@ class Compiler:
     def compile_scheme_function(self, scheme_func: SchemeFunction):
         match scheme_func:
             case SchemeFunction.ADD:
-                raise NotImplementedError
+                return [Opcode(Op.ADD)]
             case SchemeFunction.MULT:
-                raise NotImplementedError
+                return [Opcode(Op.MULT)]
             case SchemeFunction.SUB:
-                raise NotImplementedError
+                return [Opcode(Op.SUB)]
             case SchemeFunction.LESS:
-                raise NotImplementedError
+                return [Opcode(Op.LESS)]
             case SchemeFunction.EQUAL:
-                raise NotImplementedError
+                return [Opcode(Op.EQUAL)]
             case SchemeFunction.ADD1:
-                raise NotImplementedError
+                return [Opcode(Op.LOAD64, 1), Opcode(Op.ADD)]
             case SchemeFunction.SUB1:
-                raise NotImplementedError
+                return [Opcode(Op.LOAD64, 1), Opcode(Op.SUB)]
             case SchemeFunction.INTTOCHAR:
                 raise NotImplementedError
             case SchemeFunction.CHARTOINT:
@@ -453,16 +466,31 @@ class Compiler:
             case _:
                 assert_never(scheme_func)
 
+    def compile_scheme_primitive(self, primitive: SchemePrimitive):
+        match primitive:
+            case SchemePrimitive(prim_type=SPrim.INTEGER, value=value):
+                return Opcode(Op.LOAD64, value)
+            case SchemePrimitive(prim_type=SPrim.BOOLEAN, value=_):
+                raise NotImplementedError
+            case SchemePrimitive(prim_type=SPrim.CHAR, value=_):
+                raise NotImplementedError
+            case x:
+                raise ValueError(f"Invalid scheme primitive {x}")
+            # TODO: For some reason, assert_never fails. Fix this
+            # case _:
+            #     assert_never(primitive)
+
     def compile(self):
         self.code = []
         for lexeme in self.traverse_function(self.ast):
             match lexeme:
                 case SchemeFunction() as function:
                     self.code += self.compile_scheme_function(function)
-                case SchemePrimitive() as primitive:
-                    self.code.append(primitive)
-                case x:
-                    raise ValueError(f"Unknown scheme type {x}")
+                case SchemePrimitive(prim_type=_, value=_) as primitive:
+                    self.code.append(self.compile_scheme_primitive(primitive))
+                case _:
+                    assert_never(lexeme)
+        self.code.append(Opcode(Op.RETURN))
 
     # TODO: Improve the representation of bytecode to each be 64 bits
     # This means replacing all the opcodes with some shift like in the scheme paper
@@ -590,18 +618,18 @@ class ParseTests(unittest.TestCase):
         self.assertEqual(self._parse(""), "")
 
     def test_parse_fixnum(self):
-        self.assertEqual(self._parse("42"), SchemePrimitive("INTEGER", 42))
+        self.assertEqual(self._parse("42"), SchemePrimitive(SPrim.INTEGER, 42))
 
     def test_parse_fixnum_with_whitespace(self):
-        self.assertEqual(self._parse("     43"), SchemePrimitive("INTEGER", 43))
+        self.assertEqual(self._parse("     43"), SchemePrimitive(SPrim.INTEGER, 43))
 
     def test_parse_fixnum_with_newline_whitespace(self):
-        self.assertEqual(self._parse("\n\n5"), SchemePrimitive("INTEGER", 5))
+        self.assertEqual(self._parse("\n\n5"), SchemePrimitive(SPrim.INTEGER, 5))
 
     def test_parse_fixnum_big_number(self):
         self.assertEqual(
             self._parse(" 4325245623542352 "),
-            SchemePrimitive("INTEGER", 4325245623542352),
+            SchemePrimitive(SPrim.INTEGER, 4325245623542352),
         )
 
     def test_parse_unop(self):
@@ -609,7 +637,7 @@ class ParseTests(unittest.TestCase):
             self._parse("(not 1)"),
             [
                 SchemeFunction.NOT,
-                SchemePrimitive("INTEGER", 1),
+                SchemePrimitive(SPrim.INTEGER, 1),
             ],
         )
 
@@ -618,7 +646,7 @@ class ParseTests(unittest.TestCase):
             self._parse("(add1 6)"),
             [
                 SchemeFunction.ADD1,
-                SchemePrimitive("INTEGER", 6),
+                SchemePrimitive(SPrim.INTEGER, 6),
             ],
         )
 
@@ -627,7 +655,7 @@ class ParseTests(unittest.TestCase):
             self._parse("(zero? 6)"),
             [
                 SchemeFunction.ZEROPRED,
-                SchemePrimitive("INTEGER", 6),
+                SchemePrimitive(SPrim.INTEGER, 6),
             ],
         )
 
@@ -642,7 +670,10 @@ class ParseTests(unittest.TestCase):
                         SchemeFunction.INTTOCHAR,
                         [
                             SchemeFunction.CHARTOINT,
-                            [SchemeFunction.NULLPRED, SchemePrimitive("INTEGER", 0)],
+                            [
+                                SchemeFunction.NULLPRED,
+                                SchemePrimitive(SPrim.INTEGER, 0),
+                            ],
                         ],
                     ],
                 ],
@@ -654,8 +685,8 @@ class ParseTests(unittest.TestCase):
             self._parse("(* 5 6)"),
             [
                 SchemeFunction.MULT,
-                SchemePrimitive("INTEGER", 5),
-                SchemePrimitive("INTEGER", 6),
+                SchemePrimitive(SPrim.INTEGER, 5),
+                SchemePrimitive(SPrim.INTEGER, 6),
             ],
         )
 
@@ -668,17 +699,17 @@ class ParseTests(unittest.TestCase):
             self._parse("(+ 1 (* ((2)) 3))"),
             [
                 SchemeFunction.ADD,
-                SchemePrimitive("INTEGER", 1),
+                SchemePrimitive(SPrim.INTEGER, 1),
                 [
                     SchemeFunction.MULT,
-                    [[SchemePrimitive("INTEGER", 2)]],
-                    SchemePrimitive("INTEGER", 3),
+                    [[SchemePrimitive(SPrim.INTEGER, 2)]],
+                    SchemePrimitive(SPrim.INTEGER, 3),
                 ],
             ],
         )
 
     def test_parse_balanced_parens_simple(self):
-        self.assertEqual(self._parse("( 5 )"), [SchemePrimitive("INTEGER", 5)])
+        self.assertEqual(self._parse("( 5 )"), [SchemePrimitive(SPrim.INTEGER, 5)])
 
     def test_parse_open_parens(self):
         with self.assertRaises(ValueError):
@@ -701,8 +732,8 @@ class TraversalTests(unittest.TestCase):
         self.assertEqual(
             self._traverse("(+ 1 2)"),
             [
-                SchemePrimitive("INTEGER", 1),
-                SchemePrimitive("INTEGER", 2),
+                SchemePrimitive(SPrim.INTEGER, 1),
+                SchemePrimitive(SPrim.INTEGER, 2),
                 SchemeFunction.ADD,
             ],
         )
@@ -711,7 +742,7 @@ class TraversalTests(unittest.TestCase):
         self.assertEqual(
             self._traverse("(add1 6)"),
             [
-                SchemePrimitive("INTEGER", 6),
+                SchemePrimitive(SPrim.INTEGER, 6),
                 SchemeFunction.ADD1,
             ],
         )
@@ -723,8 +754,38 @@ class CompilerTests(unittest.TestCase):
         p.tokenize()
         p.parse()
         c = Compiler(p.ast)
+        print("AST:", p.ast)
         c.compile()
+        print("Compiled result:", c.code)
         return c.code
+
+    def test_ensure_return_at_end(self):
+        self.assertEqual(
+            self._compile("(1)"),
+            [Opcode(Op.LOAD64, 1), Opcode(Op.RETURN)],
+        )
+
+    def test_simple_add(self):
+        self.assertEqual(
+            self._compile("(+ 5 6)"),
+            [
+                Opcode(Op.LOAD64, 5),
+                Opcode(Op.LOAD64, 6),
+                Opcode(Op.ADD),
+                Opcode(Op.RETURN),
+            ],
+        )
+
+    def test_add1(self):
+        self.assertEqual(
+            self._compile("(add1 5)"),
+            [
+                Opcode(Op.LOAD64, 5),
+                Opcode(Op.LOAD64, 1),
+                Opcode(Op.ADD),
+                Opcode(Op.RETURN),
+            ],
+        )
 
 
 # TODO: Add compiler test to make sure a return is added to the end
